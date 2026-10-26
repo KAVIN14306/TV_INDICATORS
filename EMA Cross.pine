@@ -1,0 +1,53 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Kavin_Palanisamy
+
+//@version=6
+indicator("EMA Cross", overlay = true)
+
+// Userinput: EMA
+ema_01_len = input.int(7,   title = 'Ema 1', step = 1)
+ema_02_len = input.int(21,  title = 'Ema 2', step = 1)
+ema_03_len = input.int(50,  title = 'Ema 3', step = 1)
+ema_04_len = input.int(200, title = 'Ema 4', step = 1)
+ema_src    = input.source(close, title = "Source")
+
+// EMA-cross
+ema_01 = ta.ema(ema_src, ema_01_len)
+ema_02 = ta.ema(ema_src, ema_02_len)
+ema_03 = ta.ema(ema_src, ema_03_len)
+ema_04 = ta.ema(ema_src, ema_04_len)
+
+// EMAs in Chart (display.pane: drawn on the chart, hidden from status line and price scale)
+plot(ema_01, title = 'ema_01', color = #00FF00, style = plot.style_line, linewidth = 1, display = display.pane + display.price_scale)
+plot(ema_02, title = 'ema_02', color = #ff0040, style = plot.style_line, linewidth = 1, display = display.pane + display.price_scale)
+
+plot(ema_03, title = 'ema_03', color = #0000FF, style = plot.style_line, linewidth = 1, display = display.pane + display.price_scale)
+plot(ema_04, title = 'ema_04', color = #ff2080, style = plot.style_line, linewidth = 1, display = display.pane + display.price_scale)
+
+// Cross detect (Ema 1 x Ema 2)
+cross_01_up   = ta.crossover(ema_01, ema_02)
+cross_01_down = ta.crossunder(ema_01, ema_02)
+
+plot(cross_01_up or cross_01_down ? ema_01 : na, style = plot.style_cross, title = "cross 01", linewidth = 3, color = ema_01 > ema_02 ? color.green : color.red, display = display.pane)
+
+// Cross2 detect (Ema 2 x Ema 3)
+cross_02_up   = ta.crossover(ema_02, ema_03)
+cross_02_down = ta.crossunder(ema_02, ema_03)
+
+plot(cross_02_up or cross_02_down ? ema_02 : na, style = plot.style_cross, title = "cross 02", linewidth = 3, color = ema_02 > ema_03 ? color.green : color.red, display = display.pane)
+
+// Cross3 detect (Ema 3 x Ema 4)
+cross_03_up   = ta.crossover(ema_03, ema_04)
+cross_03_down = ta.crossunder(ema_03, ema_04)
+
+plot(cross_03_up or cross_03_down ? ema_03 : na, style = plot.style_cross, title = "cross 03", linewidth = 3, color = ema_03 > ema_04 ? color.green : color.red, display = display.pane)
+
+// Alerts
+alertcondition(cross_01_up,   title = 'cross_01_up',   message = '{{ticker}} ({{interval}}): Ema 1 crossed ABOVE Ema 2')
+alertcondition(cross_01_down, title = 'cross_01_down', message = '{{ticker}} ({{interval}}): Ema 1 crossed BELOW Ema 2')
+
+alertcondition(cross_02_up,   title = 'cross_02_up',   message = '{{ticker}} ({{interval}}): Ema 2 crossed ABOVE Ema 3')
+alertcondition(cross_02_down, title = 'cross_02_down', message = '{{ticker}} ({{interval}}): Ema 2 crossed BELOW Ema 3')
+
+alertcondition(cross_03_up,   title = 'cross_03_up',   message = '{{ticker}} ({{interval}}): Ema 3 crossed ABOVE Ema 4')
+alertcondition(cross_03_down, title = 'cross_03_down', message = '{{ticker}} ({{interval}}): Ema 3 crossed BELOW Ema 4')
