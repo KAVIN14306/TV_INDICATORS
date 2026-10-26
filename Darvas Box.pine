@@ -1,0 +1,438 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Kavin_Palanisamy
+
+//@version=6
+indicator(
+     "Darvas Box",
+     shorttitle = "Darvas Box",
+     overlay = true,
+     max_boxes_count = 500,
+     max_lines_count = 500,
+     max_labels_count = 500
+)
+
+//════════════════════════════════════════════════════════════
+// TIMEFRAME SETTINGS
+//════════════════════════════════════════════════════════════
+
+groupTF = "Timeframe"
+
+tfInput = input.string(
+     "Chart",
+     "Darvas Timeframe",
+     options = [
+          "Chart",
+          "1 Min", "2 Min", "3 Min", "5 Min", "10 Min", "15 Min", "30 Min", "45 Min",
+          "1 Hour", "2 Hour", "3 Hour", "4 Hour",
+          "Daily", "Weekly", "Monthly"
+     ],
+     group = groupTF,
+     tooltip = "Timeframe used to build the Darvas box. 'Chart' uses the current chart timeframe. A timeframe lower than the chart timeframe is not possible, so the chart timeframe is used instead."
+)
+
+//════════════════════════════════════════════════════════════
+// DARVAS BOX SETTINGS
+//════════════════════════════════════════════════════════════
+
+groupDarvas = "Darvas Box Settings"
+
+leftBars = input.int(
+     3,
+     "Left Bars",
+     minval = 1,
+     group = groupDarvas,
+     tooltip = "Bars to the left used to identify a pivot high."
+)
+
+rightBars = input.int(
+     3,
+     "Right Bars",
+     minval = 1,
+     group = groupDarvas,
+     tooltip = "Bars to the right required to confirm a pivot high."
+)
+
+minBoxBars = input.int(
+     3,
+     "Minimum Box Bars",
+     minval = 1,
+     group = groupDarvas,
+     tooltip = "Minimum number of bars that must remain inside the candidate box before confirmation."
+)
+
+breakOnClose = input.bool(
+     true,
+     "Breakout On Close",
+     group = groupDarvas,
+     tooltip = "If enabled, breakouts require a candle close outside the box. If disabled, high/low penetration is used."
+)
+
+extendBoxes = input.bool(
+     true,
+     "Extend Active Box",
+     group = groupDarvas
+)
+
+showPreviousBoxes = input.bool(
+     true,
+     "Show Previous Boxes",
+     group = groupDarvas
+)
+
+//════════════════════════════════════════════════════════════
+// DISPLAY SETTINGS
+//════════════════════════════════════════════════════════════
+
+groupDisplay = "Display"
+
+boxBorderColor = input.color(
+     color.blue,
+     "Box Border",
+     group = groupDisplay
+)
+
+boxFillColor = input.color(
+     color.new(color.blue, 88),
+     "Box Fill",
+     group = groupDisplay
+)
+
+bullBreakColor = input.color(
+     color.green,
+     "Bullish Breakout",
+     group = groupDisplay
+)
+
+bearBreakColor = input.color(
+     color.red,
+     "Bearish Breakdown",
+     group = groupDisplay
+)
+
+boxLineWidth = input.int(
+     2,
+     "Box Border Width",
+     minval = 1,
+     maxval = 4,
+     group = groupDisplay
+)
+
+showBuy = input.bool(
+     true,
+     "Show BUY Signal",
+     group = groupDisplay
+)
+
+showSell = input.bool(
+     true,
+     "Show SELL Signal",
+     group = groupDisplay
+)
+
+//════════════════════════════════════════════════════════════
+// TIMEFRAME RESOLUTION
+//════════════════════════════════════════════════════════════
+
+string selectedTf = switch tfInput
+    "Chart"   => timeframe.period
+    "1 Min"   => "1"
+    "2 Min"   => "2"
+    "3 Min"   => "3"
+    "5 Min"   => "5"
+    "10 Min"  => "10"
+    "15 Min"  => "15"
+    "30 Min"  => "30"
+    "45 Min"  => "45"
+    "1 Hour"  => "60"
+    "2 Hour"  => "120"
+    "3 Hour"  => "180"
+    "4 Hour"  => "240"
+    "Daily"   => "D"
+    "Weekly"  => "W"
+    "Monthly" => "M"
+    => timeframe.period
+
+// A timeframe lower than the chart timeframe cannot be used.
+bool tfTooLow = timeframe.in_seconds(selectedTf) < timeframe.in_seconds(timeframe.period)
+string activeTf = tfTooLow ? timeframe.period : selectedTf
+
+//════════════════════════════════════════════════════════════
+// DARVAS ENGINE (runs on the selected timeframe)
+//════════════════════════════════════════════════════════════
+
+// 0 = Searching for top
+// 1 = Top found, searching for bottom
+// 2 = Candidate box
+// 3 = Active confirmed box
+
+darvasCalc(int lb, int rb, int minBars, bool onClose) =>
+
+    float pHigh = ta.pivothigh(high, lb, rb)
+    float pLow  = ta.pivotlow(low, lb, rb)
+
+    var int state = 0
+
+    var float candidateTop = na
+    var float candidateBottom = na
+
+    var int candidateTopBar = na
+    var int candidateBottomBar = na
+    var int candidateTopTime = na
+
+    var int insideBars = 0
+
+    var float boxTop = na
+    var float boxBottom = na
+    var int boxStartTime = na
+
+    var int boxCount = 0
+    var int bullCount = 0
+    var int bearCount = 0
+
+    bool bullish = false
+    bool bearish = false
+
+    // New pivot high
+    if not na(pHigh)
+
+        pivotBar = bar_index - rb
+
+        if state == 0 or state == 1
+
+            candidateTop := pHigh
+            candidateTopBar := pivotBar
+            candidateTopTime := time[rb]
+
+            candidateBottom := na
+            candidateBottomBar := na
+
+            insideBars := 0
+            state := 1
+
+    // Search for bottom
+    if state == 1 and not na(pLow)
+
+        pivotLowBar = bar_index - rb
+
+        if pivotLowBar > candidateTopBar and pLow < candidateTop
+
+            candidateBottom := pLow
+            candidateBottomBar := pivotLowBar
+
+            insideBars := 0
+            state := 2
+
+    // Confirm candidate box
+    if state == 2
+
+        candleInside =
+             high <= candidateTop and
+             low >= candidateBottom
+
+        if candleInside
+            insideBars += 1
+        else
+            if high > candidateTop
+
+                candidateTop := high
+                candidateTopBar := bar_index
+                candidateTopTime := time
+
+                candidateBottom := na
+                candidateBottomBar := na
+
+                insideBars := 0
+                state := 1
+
+            else if low < candidateBottom
+
+                candidateTop := na
+                candidateBottom := na
+
+                candidateTopBar := na
+                candidateBottomBar := na
+                candidateTopTime := na
+
+                insideBars := 0
+                state := 0
+
+        if state == 2 and insideBars >= minBars
+
+            boxTop := candidateTop
+            boxBottom := candidateBottom
+            boxStartTime := candidateTopTime
+
+            boxCount += 1
+            state := 3
+
+    // Active box
+    if state == 3
+
+        if onClose
+            bullish := close > boxTop and close[1] <= boxTop
+            bearish := close < boxBottom and close[1] >= boxBottom
+        else
+            bullish := high > boxTop and high[1] <= boxTop
+            bearish := low < boxBottom and low[1] >= boxBottom
+
+        if bullish or bearish
+
+            if bullish
+                bullCount += 1
+            if bearish
+                bearCount += 1
+
+            boxTop := na
+            boxBottom := na
+            boxStartTime := na
+
+            candidateTop := na
+            candidateBottom := na
+
+            candidateTopBar := na
+            candidateBottomBar := na
+            candidateTopTime := na
+
+            insideBars := 0
+
+            state := 0
+
+    [state, boxTop, boxBottom, boxStartTime, boxCount, bullCount, bearCount]
+
+[tfState, tfTop, tfBottom, tfStartTime, tfBoxCount, tfBullCount, tfBearCount] = request.security(
+     syminfo.tickerid,
+     activeTf,
+     darvasCalc(leftBars, rightBars, minBoxBars, breakOnClose),
+     lookahead = barmerge.lookahead_off
+)
+
+//════════════════════════════════════════════════════════════
+// EVENTS ON THE CHART
+//════════════════════════════════════════════════════════════
+
+bool boxCreated = not barstate.isfirst and nz(tfBoxCount) != nz(tfBoxCount[1])
+bool bullishBreakout = not barstate.isfirst and nz(tfBullCount) != nz(tfBullCount[1])
+bool bearishBreakdown = not barstate.isfirst and nz(tfBearCount) != nz(tfBearCount[1])
+
+//════════════════════════════════════════════════════════════
+// BOX DRAWING
+//════════════════════════════════════════════════════════════
+
+var box activeBox = na
+
+if tfState == 3
+
+    if boxCreated or na(activeBox)
+
+        activeBox := box.new(
+             left = tfStartTime,
+             top = tfTop,
+             right = time,
+             bottom = tfBottom,
+             xloc = xloc.bar_time,
+             border_color = boxBorderColor,
+             border_width = boxLineWidth,
+             bgcolor = boxFillColor
+        )
+
+    else if extendBoxes
+
+        box.set_right(activeBox, time)
+
+else
+
+    if not na(activeBox)
+
+        // Extend to the breakout bar, then close the box.
+        if extendBoxes
+            box.set_right(activeBox, time)
+
+        if not showPreviousBoxes
+            box.delete(activeBox)
+
+        activeBox := na
+
+//════════════════════════════════════════════════════════════
+// BOX LEVEL PLOTS
+//════════════════════════════════════════════════════════════
+
+plot(
+     tfState == 3 ? tfTop : na,
+     title = "Darvas Box High",
+     color = boxBorderColor,
+     linewidth = 2,
+     style = plot.style_linebr,
+     display = display.pane
+)
+
+plot(
+     tfState == 3 ? tfBottom : na,
+     title = "Darvas Box Low",
+     color = boxBorderColor,
+     linewidth = 2,
+     style = plot.style_linebr,
+     display = display.pane
+)
+
+//════════════════════════════════════════════════════════════
+// BUY / SELL LABELS (placed right at the bar's low / high)
+//════════════════════════════════════════════════════════════
+
+// BUY: label below the bar, pointer touching the candle low
+if showBuy and bullishBreakout
+
+    label.new(
+         bar_index,
+         low,
+         "BUY",
+         yloc = yloc.price,
+         style = label.style_label_up,
+         color = bullBreakColor,
+         textcolor = color.white,
+         size = size.small
+    )
+
+// SELL: label above the bar, pointer touching the candle high
+if showSell and bearishBreakdown
+
+    label.new(
+         bar_index,
+         high,
+         "SELL",
+         yloc = yloc.price,
+         style = label.style_label_down,
+         color = bearBreakColor,
+         textcolor = color.white,
+         size = size.small
+    )
+
+//════════════════════════════════════════════════════════════
+// TIMEFRAME WARNING
+//════════════════════════════════════════════════════════════
+
+var table tfWarn = table.new(position.top_right, 1, 1)
+
+if barstate.islast and tfTooLow
+    table.cell(
+         tfWarn, 0, 0,
+         "Darvas TF is lower than chart TF - using chart TF",
+         text_color = color.white,
+         bgcolor = color.new(color.red, 20),
+         text_size = size.small
+    )
+
+//════════════════════════════════════════════════════════════
+// ALERTS
+//════════════════════════════════════════════════════════════
+
+alertcondition(
+     bullishBreakout,
+     title = "Darvas Bullish Breakout",
+     message = "Darvas Box bullish breakout on {{ticker}} at {{close}}"
+)
+
+alertcondition(
+     bearishBreakdown,
+     title = "Darvas Bearish Breakdown",
+     message = "Darvas Box bearish breakdown on {{ticker}} at {{close}}"
+)
