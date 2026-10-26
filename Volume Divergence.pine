@@ -1,0 +1,141 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Kavin_Palanisamy
+
+//@version=6
+indicator(title="Volume Divergence", shorttitle="Volume Divergence", format=format.volume)
+
+pine_wma(x, y) =>
+    norm = 0.0
+    sum = 0.0
+    for i = 0 to y - 1
+        weight = (y - i) * y
+        norm := norm + weight
+        factor = close[i] < open[i] ? -1 : 1
+        sum := sum + (x[i] * weight * factor)
+    sum / norm
+
+vl1 = input.int(defval=5, title="First Moving Average length")
+vl2 = input.int(defval=8, title="Second Moving Average length")
+vl3 = vl1 + vl2
+vl4 = vl2 + vl3
+vl5 = vl3 + vl4
+
+v1 = pine_wma(volume, vl1)
+v2 = pine_wma(v1, vl2)
+v3 = pine_wma(v2, vl3)
+v4 = pine_wma(v3, vl4)
+vol = pine_wma(v4, vl5)
+
+vol_color = vol > 0 ? color.green : color.red
+hline(0, title="Baseline", color=color.silver, linewidth=1)
+
+// Main volume line: no status line value, value shown on the price scale
+plot(vol, color=vol_color, linewidth=2, title="Volume", display=display.pane + display.price_scale)
+
+//------------------------------------------------------------------------------
+// Volume MA Signal
+
+grpMA = "VOLUME MA SIGNAL"
+maLen = input.int(defval=9, title="Volume MA Signal Length", minval=1, group=grpMA)
+maType = input.string(defval="EMA", title="Volume MA Signal Type", options=["SMA", "EMA", "WMA", "SMMA (RMA)"], group=grpMA)
+showMA = input.bool(defval=true, title="Show Volume MA Signal", group=grpMA)
+
+maSMA = ta.sma(vol, maLen)
+maEMA = ta.ema(vol, maLen)
+maWMA = ta.wma(vol, maLen)
+maRMA = ta.rma(vol, maLen)
+
+volMA = switch maType
+    "SMA" => maSMA
+    "EMA" => maEMA
+    "WMA" => maWMA
+    "SMMA (RMA)" => maRMA
+    => maEMA
+
+// Signal line: no status line value, value shown on the price scale
+plot(showMA ? volMA : na, color=color.orange, linewidth=2, title="Volume MA Signal", display=display.pane + display.price_scale)
+
+//------------------------------------------------------------------------------
+// Divergence settings
+
+lbR = input.int(title="Pivot Lookback Right", defval=5)
+lbL = input.int(title="Pivot Lookback Left", defval=5)
+rangeUpper = input.int(title="Max of Lookback Range", defval=60)
+rangeLower = input.int(title="Min of Lookback Range", defval=5)
+plotBull = input.bool(title="Plot Bullish", defval=true)
+plotBear = input.bool(title="Plot Bearish", defval=true)
+
+bearColor = color.red
+bullColor = color.green
+textColor = color.white
+noneColor = color.new(color.white, 100)
+
+plFound = na(ta.pivotlow(vol, lbL, lbR)) ? false : true
+phFound = na(ta.pivothigh(vol, lbL, lbR)) ? false : true
+
+_inRange(cond) =>
+    bars = ta.barssince(cond == true)
+    rangeLower <= bars and bars <= rangeUpper
+
+//------------------------------------------------------------------------------
+// Regular Bullish
+
+// vol: Higher Low
+volHL = vol[lbR] > ta.valuewhen(plFound, vol[lbR], 1) and _inRange(plFound[1])
+
+// Price: Lower Low
+priceLL = low[lbR] < ta.valuewhen(plFound, low[lbR], 1)
+
+bullCond = plotBull and priceLL and volHL and plFound
+
+plot(
+	 plFound ? vol[lbR] : na,
+	 offset=-lbR,
+	 title="Regular Bullish",
+	 linewidth=2,
+	 color=(bullCond ? bullColor : noneColor),
+	 display=display.pane
+	 )
+
+plotshape(
+	 bullCond ? vol[lbR] : na,
+	 offset=-lbR,
+	 title="Regular Bullish Label",
+	 text=" Bull ",
+	 style=shape.labelup,
+	 location=location.absolute,
+	 color=bullColor,
+	 textcolor=textColor,
+	 display=display.pane
+	 )
+
+//------------------------------------------------------------------------------
+// Regular Bearish
+
+// vol: Lower High
+volLH = vol[lbR] < ta.valuewhen(phFound, vol[lbR], 1) and _inRange(phFound[1])
+
+// Price: Higher High
+priceHH = high[lbR] > ta.valuewhen(phFound, high[lbR], 1)
+bearCond = plotBear and priceHH and volLH and phFound
+
+plot(
+	 phFound ? vol[lbR] : na,
+	 offset=-lbR,
+	 title="Regular Bearish",
+	 linewidth=2,
+	 color=(bearCond ? bearColor : noneColor),
+	 display=display.pane
+	 )
+
+plotshape(
+	 bearCond ? vol[lbR] : na,
+	 offset=-lbR,
+	 title="Regular Bearish Label",
+	 text=" Bear ",
+	 style=shape.labeldown,
+	 location=location.absolute,
+	 color=bearColor,
+	 textcolor=textColor,
+	 display=display.pane
+	 )
