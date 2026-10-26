@@ -5,7 +5,7 @@
 indicator('CPR + SMC Combined', shorttitle = 'CPR + SMC', overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
 
 //══════════════════════════════════════════════════════════════════════════════════════════════
-// MASTER CONTROL  (one dropdown: only the selected indicator is displayed)
+// MASTER CONTROL (one dropdown: only the selected indicator is displayed)
 //══════════════════════════════════════════════════════════════════════════════════════════════
 MODE_CPR = 'CPR + Multi'
 MODE_SMC = 'SMC Concepts'
