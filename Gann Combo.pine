@@ -1,0 +1,938 @@
+// This Pine Script code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Kavin_Palanisamy
+
+//@version=6
+indicator("Gann Box + Square of 9", "Gann Combo", overlay = true, max_boxes_count = 50, max_labels_count = 500, max_lines_count = 500, max_polylines_count = 100, max_bars_back = 1000)
+
+//=====================================================================================================================
+// 1. CONSTANTS
+//=====================================================================================================================
+NOVAL = display.none
+
+color BULL_COLOR  = #089981
+color BEAR_COLOR  = #f23645
+color DATA        = #DBDBDB
+color HEADERS     = #808080
+color BACKGROUND  = #161616
+color BORDERS     = #2E2E2E
+
+string TOP_RIGHT    = 'Top Right'
+string BOTTOM_RIGHT = 'Bottom Right'
+string BOTTOM_LEFT  = 'Bottom Left'
+
+string TINY   = 'Tiny'
+string SMALL  = 'Small'
+string NORMAL = 'Normal'
+string LARGE  = 'Large'
+string HUGE   = 'Huge'
+
+string BA_VISIBLE = "Visible Window"
+string BA_PIVOTS  = "Last Pivots"
+string BA_MANUAL  = "Manual Range"
+
+string G_MASTER = "Master"
+string G_GEN   = "Box - General"
+string G_BOX   = "Box - Gann Box"
+string G_PRICE = "Box - Price Levels"
+string G_TIME  = "Box - Time Levels"
+string G_FAN   = "Box - Gann Fan"
+string G_CURVE = "Box - Gann Curves"
+string G_ANG   = "Box - Gann Angles"
+
+string G_SQ             = "Square of 9 - General"
+string DASHBOARD_GROUP  = 'Square of 9 - Dashboard'
+string CALC_GROUP       = 'Square of 9 - Calculation'
+string VISUAL_GROUP     = 'Square of 9 - Visuals'
+string ALERT_GROUP      = 'Square of 9 - Alerts'
+string CYCLE_GROUP      = 'Gann Time Cycles'
+
+int FUTURE_BARS    = 500
+int MAX_PAST_BARS  = 9999
+
+// Gann fan ratios (price units per time unit, relative to the 1/1 box diagonal)
+float[]  fanRatio = array.from(0.125, 0.25, 1.0 / 3.0, 0.5, 1.0, 2.0, 3.0, 4.0, 8.0)
+string[] fanText  = array.from("1/8", "1/4", "1/3", "1/2", "1/1", "2/1", "3/1", "4/1", "8/1")
+
+//=====================================================================================================================
+// 2. TOOLTIPS
+//=====================================================================================================================
+t1 = "Reverses the orientation of labels and calculations in the Gann Box, offering alternative analytical perspectives."
+t2 = "Extend the drawing of Gann lines or boxes into the future beyond the current last bar to anticipate potential support or resistance levels. This setting is crucial for traders looking to forecast future price movements and prepare for potential market reactions at these extended levels."
+t3 = "Enables or disables the display of the Gann Box (price levels, time levels and their backgrounds). The Gann Box is a fundamental tool in Gann analysis, providing insights into potential support and resistance levels, and enabling traders to identify strategic entry and exit points."
+t4 = "When enabled, the backgrounds use the single up / down color (up = price rising from low to high, down = price falling from high to low) instead of each level's own color."
+t5 = "Enables or disables the display of Gann Curves. When enabled, it draws curves based on Gann percentages to predict potential market movements. These curves offer a dynamic view of potential support and resistance levels as they adjust to changing market conditions, aiding in the analysis of momentum and trend strength."
+t6 = "Enables or disables the display of Gann Angles. These are diagonal lines that extend from significant price points to provide insights into future support and resistance levels. Gann Angles are a cornerstone of Gann theory, offering a unique perspective on price and time dynamics that can signal significant market movements."
+t7 = "Enables or disables the Gann Fan. The 1/1 line is the box diagonal; every other line is that slope multiplied by its ratio (1/8 is shallow, 8/1 is steep). Lines stop where they reach the edge of the box."
+t8 = "When enabled, all fan lines and the background use the single up / down color (up = price rising from low to high, down = price falling from high to low) instead of each line's own color."
+t9 = "When enabled, all curves, labels and the background use the single up / down color (up = price rising from low to high, down = price falling from high to low) instead of each curve's own color."
+t10 = "How the Gann Box is anchored.\nVisible Window = highest high / lowest low of the bars currently visible on the chart.\nLast Pivots = the most recent confirmed pivot high and pivot low (see Pivot Lookback).\nManual Range = highest high / lowest low between Manual Range Start and Manual Range End (typed in below, exchange timezone)."
+t11 = "Bars to the left and right used to confirm a pivot. Only used when Box Anchor is 'Last Pivots'."
+t12 = "Start of the range (typed date and time, exchange timezone). Only used when Box Anchor is 'Manual Range'."
+t13 = "End of the range (typed date and time, exchange timezone). Only used when Box Anchor is 'Manual Range'."
+t14 = "Manual Anchor Time (Day / Month / Year / Hour / Min). Only used when Anchor Type is 'Manual'. The anchor is placed on the first bar at or after this date and time (exchange timezone)."
+
+string dashboardTooltip         = 'Enable or disable the dashboard.'
+string dashboardPositionTooltip = 'Select the dashboard location.'
+string dashboardSizeTooltip     = 'Select the dashboard size.'
+
+//=====================================================================================================================
+// 3. INPUTS - MASTER
+//=====================================================================================================================
+masterOn = input.bool(true, "Master Switch (Show / Hide All)", group = G_MASTER, tooltip = "Turns the whole indicator on or off: Gann Box, Fan, Curves, Angles, Square of 9, Time Cycles, dashboard, warnings and alerts.", display = NOVAL)
+
+//=====================================================================================================================
+// 3A. INPUTS - GANN BOX
+//=====================================================================================================================
+reverseInput = input.bool(false, title = "Reverse", group = G_GEN, tooltip = t1, display = NOVAL)
+extendInput  = input.bool(true, title = "Extend", group = G_GEN, tooltip = t2, display = NOVAL)
+
+boxAnchorInput   = input.string(BA_VISIBLE, "Box Anchor", options = [BA_VISIBLE, BA_PIVOTS, BA_MANUAL], group = G_GEN, tooltip = t10, display = NOVAL)
+boxPivotLenInput = input.int(10, "Pivot Lookback (Last Pivots mode)", minval = 1, group = G_GEN, tooltip = t11, display = NOVAL)
+
+// Manual range typed as numbers (no draggable chart lines)
+msDay  = input.int(30,   "Start Day",    minval = 1, maxval = 31,   inline = "ms1", group = G_GEN, tooltip = t12, display = NOVAL)
+msMon  = input.int(9,    "Month",        minval = 1, maxval = 12,   inline = "ms1", group = G_GEN, display = NOVAL)
+msYear = input.int(2026, "Year",         minval = 1970, maxval = 2100, inline = "ms1", group = G_GEN, display = NOVAL)
+msHour = input.int(12,   "Start Hour",   minval = 0, maxval = 23,   inline = "ms2", group = G_GEN, display = NOVAL)
+msMin  = input.int(0,    "Min",          minval = 0, maxval = 59,   inline = "ms2", group = G_GEN, display = NOVAL)
+
+meDay  = input.int(5,    "End Day",      minval = 1, maxval = 31,   inline = "me1", group = G_GEN, tooltip = t13, display = NOVAL)
+meMon  = input.int(10,   "Month",        minval = 1, maxval = 12,   inline = "me1", group = G_GEN, display = NOVAL)
+meYear = input.int(2026, "Year",         minval = 1970, maxval = 2100, inline = "me1", group = G_GEN, display = NOVAL)
+meHour = input.int(11,   "End Hour",     minval = 0, maxval = 23,   inline = "me2", group = G_GEN, display = NOVAL)
+meMin  = input.int(0,    "Min",          minval = 0, maxval = 59,   inline = "me2", group = G_GEN, display = NOVAL)
+
+int boxRangeStartInput = timestamp(syminfo.timezone, msYear, msMon, msDay, msHour, msMin)
+int boxRangeEndInput   = timestamp(syminfo.timezone, meYear, meMon, meDay, meHour, meMin)
+
+showBox     = input.bool(true, title = "Show Box", group = G_BOX, tooltip = t3, display = NOVAL)
+useOneColor = input.bool(false, "Use one color", inline = "one", group = G_BOX, tooltip = t4, display = NOVAL)
+oneUpColor  = input.color(#26a69a, "", inline = "one", group = G_BOX, display = NOVAL)
+oneDnColor  = input.color(#ef5350, "", inline = "one", group = G_BOX, display = NOVAL)
+
+// ---- Price levels (horizontal) ----
+priceOn = array.from(
+     input.bool(true, "", inline = "p1", group = G_PRICE, display = NOVAL),
+     input.bool(true, "", inline = "p2", group = G_PRICE, display = NOVAL),
+     input.bool(true, "", inline = "p3", group = G_PRICE, display = NOVAL),
+     input.bool(true, "", inline = "p4", group = G_PRICE, display = NOVAL),
+     input.bool(true, "", inline = "p5", group = G_PRICE, display = NOVAL),
+     input.bool(true, "", inline = "p6", group = G_PRICE, display = NOVAL),
+     input.bool(true, "", inline = "p7", group = G_PRICE, display = NOVAL))
+
+priceVal = array.from(
+     input.float(0.0,   "", step = 0.001, inline = "p1", group = G_PRICE, display = NOVAL),
+     input.float(0.25,  "", step = 0.001, inline = "p2", group = G_PRICE, display = NOVAL),
+     input.float(0.382, "", step = 0.001, inline = "p3", group = G_PRICE, display = NOVAL),
+     input.float(0.5,   "", step = 0.001, inline = "p4", group = G_PRICE, display = NOVAL),
+     input.float(0.618, "", step = 0.001, inline = "p5", group = G_PRICE, display = NOVAL),
+     input.float(0.75,  "", step = 0.001, inline = "p6", group = G_PRICE, display = NOVAL),
+     input.float(1.0,   "", step = 0.001, inline = "p7", group = G_PRICE, display = NOVAL))
+
+priceCol = array.from(
+     input.color(#787B86, "", inline = "p1", group = G_PRICE, display = NOVAL),
+     input.color(#F59E3F, "", inline = "p2", group = G_PRICE, display = NOVAL),
+     input.color(#55B9D3, "", inline = "p3", group = G_PRICE, display = NOVAL),
+     input.color(#6AAF5E, "", inline = "p4", group = G_PRICE, display = NOVAL),
+     input.color(#429980, "", inline = "p5", group = G_PRICE, display = NOVAL),
+     input.color(#3D63F7, "", inline = "p6", group = G_PRICE, display = NOVAL),
+     input.color(#787B86, "", inline = "p7", group = G_PRICE, display = NOVAL))
+
+showLeftLbl    = input.bool(true, "Left labels", group = G_PRICE, display = NOVAL)
+showRightLbl   = input.bool(true, "Right labels", group = G_PRICE, display = NOVAL)
+priceBgOn      = input.bool(true, "Background", inline = "pbg", group = G_PRICE, display = NOVAL)
+priceBgTransp  = input.int(85, "Transparency", minval = 0, maxval = 100, inline = "pbg", group = G_PRICE, display = NOVAL)
+
+// ---- Time levels (vertical) ----
+timeOn = array.from(
+     input.bool(true, "", inline = "q1", group = G_TIME, display = NOVAL),
+     input.bool(true, "", inline = "q2", group = G_TIME, display = NOVAL),
+     input.bool(true, "", inline = "q3", group = G_TIME, display = NOVAL),
+     input.bool(true, "", inline = "q4", group = G_TIME, display = NOVAL),
+     input.bool(true, "", inline = "q5", group = G_TIME, display = NOVAL),
+     input.bool(true, "", inline = "q6", group = G_TIME, display = NOVAL),
+     input.bool(true, "", inline = "q7", group = G_TIME, display = NOVAL))
+
+timeVal = array.from(
+     input.float(0.0,   "", step = 0.001, inline = "q1", group = G_TIME, display = NOVAL),
+     input.float(0.25,  "", step = 0.001, inline = "q2", group = G_TIME, display = NOVAL),
+     input.float(0.382, "", step = 0.001, inline = "q3", group = G_TIME, display = NOVAL),
+     input.float(0.5,   "", step = 0.001, inline = "q4", group = G_TIME, display = NOVAL),
+     input.float(0.618, "", step = 0.001, inline = "q5", group = G_TIME, display = NOVAL),
+     input.float(0.75,  "", step = 0.001, inline = "q6", group = G_TIME, display = NOVAL),
+     input.float(1.0,   "", step = 0.001, inline = "q7", group = G_TIME, display = NOVAL))
+
+timeCol = array.from(
+     input.color(#787B86, "", inline = "q1", group = G_TIME, display = NOVAL),
+     input.color(#F59E3F, "", inline = "q2", group = G_TIME, display = NOVAL),
+     input.color(#55B9D3, "", inline = "q3", group = G_TIME, display = NOVAL),
+     input.color(#6AAF5E, "", inline = "q4", group = G_TIME, display = NOVAL),
+     input.color(#429980, "", inline = "q5", group = G_TIME, display = NOVAL),
+     input.color(#3D63F7, "", inline = "q6", group = G_TIME, display = NOVAL),
+     input.color(#787B86, "", inline = "q7", group = G_TIME, display = NOVAL))
+
+showTopLbl    = input.bool(true, "Top labels", group = G_TIME, display = NOVAL)
+showBottomLbl = input.bool(true, "Bottom labels", group = G_TIME, display = NOVAL)
+timeBgOn      = input.bool(false, "Background", inline = "tbg", group = G_TIME, display = NOVAL)
+timeBgTransp  = input.int(85, "Transparency", minval = 0, maxval = 100, inline = "tbg", group = G_TIME, display = NOVAL)
+
+// ---- Fan (1/8, 1/4, 1/3, 1/2, 1/1, 2/1, 3/1, 4/1, 8/1) ----
+showFan = input.bool(false, title = "Show Fan", group = G_FAN, tooltip = t7, display = NOVAL)
+
+fanOn = array.from(
+     input.bool(true, "1/8", inline = "g1", group = G_FAN, display = NOVAL),
+     input.bool(true, "1/4", inline = "g2", group = G_FAN, display = NOVAL),
+     input.bool(true, "1/3", inline = "g3", group = G_FAN, display = NOVAL),
+     input.bool(true, "1/2", inline = "g4", group = G_FAN, display = NOVAL),
+     input.bool(true, "1/1", inline = "g5", group = G_FAN, display = NOVAL),
+     input.bool(true, "2/1", inline = "g6", group = G_FAN, display = NOVAL),
+     input.bool(true, "3/1", inline = "g7", group = G_FAN, display = NOVAL),
+     input.bool(true, "4/1", inline = "g8", group = G_FAN, display = NOVAL),
+     input.bool(true, "8/1", inline = "g9", group = G_FAN, display = NOVAL))
+
+fanCol = array.from(
+     input.color(#F7A23B, "", inline = "g1", group = G_FAN, display = NOVAL),
+     input.color(#2DD4D4, "", inline = "g2", group = G_FAN, display = NOVAL),
+     input.color(#7FD93F, "", inline = "g3", group = G_FAN, display = NOVAL),
+     input.color(#2ADCDC, "", inline = "g4", group = G_FAN, display = NOVAL),
+     input.color(#44E0E8, "", inline = "g5", group = G_FAN, display = NOVAL),
+     input.color(#3CC3D8, "", inline = "g6", group = G_FAN, display = NOVAL),
+     input.color(#F8A5D8, "", inline = "g7", group = G_FAN, display = NOVAL),
+     input.color(#F36FD6, "", inline = "g8", group = G_FAN, display = NOVAL),
+     input.color(#F0646E, "", inline = "g9", group = G_FAN, display = NOVAL))
+
+fanUseOne    = input.bool(false, "Use one color", inline = "gone", group = G_FAN, tooltip = t8, display = NOVAL)
+fanUpColor   = input.color(#26a69a, "", inline = "gone", group = G_FAN, display = NOVAL)
+fanDnColor   = input.color(#ef5350, "", inline = "gone", group = G_FAN, display = NOVAL)
+fanBgOn      = input.bool(true, "Background", inline = "gbg", group = G_FAN, display = NOVAL)
+fanBgTransp  = input.int(85, "Transparency", minval = 0, maxval = 100, inline = "gbg", group = G_FAN, display = NOVAL)
+fanLblOn     = input.bool(true, "Labels", group = G_FAN, display = NOVAL)
+
+// ---- Curves ----
+showCurve = input.bool(false, title = "Show Curves", group = G_CURVE, tooltip = t5, display = NOVAL)
+
+curveOn = array.from(
+     input.bool(true, "", inline = "c1", group = G_CURVE, display = NOVAL),
+     input.bool(true, "", inline = "c2", group = G_CURVE, display = NOVAL),
+     input.bool(true, "", inline = "c3", group = G_CURVE, display = NOVAL),
+     input.bool(true, "", inline = "c4", group = G_CURVE, display = NOVAL),
+     input.bool(true, "", inline = "c5", group = G_CURVE, display = NOVAL),
+     input.bool(true, "", inline = "c6", group = G_CURVE, display = NOVAL))
+
+curveVal = array.from(
+     input.float(0.25,  "", step = 0.001, inline = "c1", group = G_CURVE, display = NOVAL),
+     input.float(0.382, "", step = 0.001, inline = "c2", group = G_CURVE, display = NOVAL),
+     input.float(0.5,   "", step = 0.001, inline = "c3", group = G_CURVE, display = NOVAL),
+     input.float(0.618, "", step = 0.001, inline = "c4", group = G_CURVE, display = NOVAL),
+     input.float(0.75,  "", step = 0.001, inline = "c5", group = G_CURVE, display = NOVAL),
+     input.float(1.0,   "", step = 0.001, inline = "c6", group = G_CURVE, display = NOVAL))
+
+ccol = array.from(
+     input.color(#ff9800, "", inline = "c1", group = G_CURVE, display = NOVAL),
+     input.color(#81c784, "", inline = "c2", group = G_CURVE, display = NOVAL),
+     input.color(#4caf50, "", inline = "c3", group = G_CURVE, display = NOVAL),
+     input.color(#089981, "", inline = "c4", group = G_CURVE, display = NOVAL),
+     input.color(#00bcd4, "", inline = "c5", group = G_CURVE, display = NOVAL),
+     input.color(#2962ff, "", inline = "c6", group = G_CURVE, display = NOVAL))
+
+showCurveLbl  = input.bool(true, "Labels", group = G_CURVE, display = NOVAL)
+curveUseOne   = input.bool(false, "Use one color", inline = "cone", group = G_CURVE, tooltip = t9, display = NOVAL)
+curveUpColor  = input.color(#26a69a, "", inline = "cone", group = G_CURVE, display = NOVAL)
+curveDnColor  = input.color(#ef5350, "", inline = "cone", group = G_CURVE, display = NOVAL)
+curveBgOn     = input.bool(false, "Background", inline = "cbg", group = G_CURVE, display = NOVAL)
+curveBgTransp = input.int(85, "Transparency", minval = 0, maxval = 100, inline = "cbg", group = G_CURVE, display = NOVAL)
+
+// ---- Angles ----
+showAngles = input.bool(false, title = "Show Angles", group = G_ANG, inline = "a1", tooltip = t6, display = NOVAL)
+acol       = input.color(color.gray, "", group = G_ANG, inline = "a1", display = NOVAL)
+
+//=====================================================================================================================
+// 4. INPUTS - SQUARE OF 9
+//=====================================================================================================================
+showSquare = input.bool(false, "Show Square of 9", group = G_SQ, tooltip = "Master switch for the Square of 9 levels, dashboard and alerts. (Gann Time Cycles have their own switch.)", display = NOVAL)
+
+anchorTypeInput    = input.string("Auto pivot", "Anchor Type", options = ["Auto pivot", "Pivot High", "Pivot Low", "Manual"], group = CALC_GROUP, tooltip = "Auto pivot = most recent pivot (high or low). Pivot High / Pivot Low = only that type of pivot. Also used as the Gann Time Cycles origin when Cycle Origin = Anchor.", display = NOVAL)
+pivotLookbackInput = input.int(20, "Pivot Lookback", minval = 2, group = CALC_GROUP, tooltip = "Bars to the left and right used to confirm a pivot.", display = NOVAL)
+manualPriceInput   = input.float(0.0, "Manual Anchor Price", minval = 0.0, group = CALC_GROUP, tooltip = "Used if Anchor Type is 'Manual'. Must be greater than 0 for the Square of 9 levels (not needed for Gann Time Cycles).", display = NOVAL)
+
+// Manual Anchor Time typed as numbers (same format as the Manual Range inputs)
+maDay  = input.int(1,    "Manual Anchor Time: Day",  minval = 1, maxval = 31,      inline = "ma1", group = CALC_GROUP, tooltip = t14, display = NOVAL)
+maMon  = input.int(1,    "Month",                    minval = 1, maxval = 12,      inline = "ma1", group = CALC_GROUP, display = NOVAL)
+maYear = input.int(2025, "Year",                     minval = 1970, maxval = 2100, inline = "ma1", group = CALC_GROUP, display = NOVAL)
+maHour = input.int(0,    "Manual Anchor Time: Hour", minval = 0, maxval = 23,      inline = "ma2", group = CALC_GROUP, display = NOVAL)
+maMin  = input.int(0,    "Min",                      minval = 0, maxval = 59,      inline = "ma2", group = CALC_GROUP, display = NOVAL)
+
+int manualTimeInput = timestamp(syminfo.timezone, maYear, maMon, maDay, maHour, maMin)
+
+manualIsLowInput   = input.bool(true, "Manual Anchor Is a Low", group = CALC_GROUP, tooltip = "Untick if the manual anchor is a high.", display = NOVAL)
+directionInput     = input.string("Both", "Vibration Direction", options = ["Up", "Down", "Both"], group = CALC_GROUP, display = NOVAL)
+degreeStepInput    = input.float(45.0, "Degree Step", options = [15.0, 22.5, 30.0, 45.0, 90.0], group = CALC_GROUP, tooltip = "Angular distance between consecutive levels.", display = NOVAL)
+cyclesInput        = input.int(1, "Rotations (360 deg cycles)", minval = 1, maxval = 5, group = CALC_GROUP, tooltip = "How many full rotations around the Square of 9 are projected.", display = NOVAL)
+maxDistInput       = input.float(15.0, "Max Distance From Price (%)", minval = 0.0, step = 0.5, group = CALC_GROUP, tooltip = "Hide levels farther than this % from the current price (also applies to the dashboard and alerts). 0 = show all.", display = NOVAL)
+
+showCardinalInput    = input.bool(true, "Show Cardinal Levels (90 deg)", group = VISUAL_GROUP, display = NOVAL)
+showOrdinalInput     = input.bool(true, "Show Ordinal Levels (other angles)", group = VISUAL_GROUP, display = NOVAL)
+showAnchorLineInput  = input.bool(true, "Show Anchor Line (0 deg)", group = VISUAL_GROUP, display = NOVAL)
+showAnchorLabelInput = input.bool(true, "Show Anchor Label", group = VISUAL_GROUP, tooltip = "Turns the separate 'Anchor' text label on or off (independent of the anchor line).", display = NOVAL)
+levelLabelsInput     = input.bool(true, "Show Level Labels", group = VISUAL_GROUP, display = NOVAL)
+labelOneLineInput    = input.bool(false, "Level Label On One Line (degree / price)", group = VISUAL_GROUP, tooltip = "ON = label shows 'degree / price' continuously on one line. OFF = price is shown below the degree. Only applies when Show Level Labels is on.", display = NOVAL)
+extendRightInput     = input.bool(false, "Extend Lines to the Right", group = VISUAL_GROUP, display = NOVAL)
+cardinalColorInput   = input.color(color.new(#2962FF, 20), "Cardinal Level Color", group = VISUAL_GROUP, display = NOVAL)
+ordinalColorInput    = input.color(color.new(#9c27b0, 40), "Ordinal Level Color", group = VISUAL_GROUP, display = NOVAL)
+keyColorInput        = input.color(color.new(#FF9800, 0), "Key Level Color (180 / 360 deg multiples)", group = VISUAL_GROUP, display = NOVAL)
+anchorColorInput     = input.color(color.new(#B2B5BE, 0), "Anchor Color", group = VISUAL_GROUP, display = NOVAL)
+
+cardStyleInput = input.string("Solid", "Cardinal Line Style", options = ["Solid", "Dashed", "Dotted"], group = VISUAL_GROUP, tooltip = "Line style of the Cardinal (90 deg) levels. Key levels (180 / 360 deg) use this style too.", display = NOVAL)
+cardWidthInput = input.int(2, "Cardinal Line Width", minval = 1, maxval = 6, group = VISUAL_GROUP, tooltip = "Key levels (180 / 360 deg) are drawn 1 step thicker than this.", display = NOVAL)
+ordStyleInput  = input.string("Dashed", "Ordinal Line Style", options = ["Solid", "Dashed", "Dotted"], group = VISUAL_GROUP, tooltip = "Line style of the Ordinal (other angle) levels.", display = NOVAL)
+ordWidthInput  = input.int(1, "Ordinal Line Width", minval = 1, maxval = 6, group = VISUAL_GROUP, display = NOVAL)
+
+//=====================================================================================================================
+// 4B. INPUTS - GANN TIME CYCLES
+//=====================================================================================================================
+cycleOriginInput = input.string("Anchor", "Cycle Origin", options = ["Anchor", "Gann Box Start"], group = CYCLE_GROUP, tooltip = "Anchor = the pivot / manual anchor from 'Square of 9 - Calculation'. Gann Box Start = left edge of the Gann Box (follows the Box Anchor mode).", display = NOVAL)
+showTimeInput    = input.bool(false, "Show Gann Time Cycles", group = CYCLE_GROUP, tooltip = "Draws a vertical line at each enabled cycle (number of bars counted from the Cycle Origin).", display = NOVAL)
+
+cycOn = array.from(
+     input.bool(true, "", inline = "y1",  group = CYCLE_GROUP, display = NOVAL),
+     input.bool(true, "", inline = "y2",  group = CYCLE_GROUP, display = NOVAL),
+     input.bool(true, "", inline = "y3",  group = CYCLE_GROUP, display = NOVAL),
+     input.bool(true, "", inline = "y4",  group = CYCLE_GROUP, display = NOVAL),
+     input.bool(true, "", inline = "y5",  group = CYCLE_GROUP, display = NOVAL),
+     input.bool(true, "", inline = "y6",  group = CYCLE_GROUP, display = NOVAL),
+     input.bool(true, "", inline = "y7",  group = CYCLE_GROUP, display = NOVAL),
+     input.bool(true, "", inline = "y8",  group = CYCLE_GROUP, display = NOVAL),
+     input.bool(true, "", inline = "y9",  group = CYCLE_GROUP, display = NOVAL),
+     input.bool(true, "", inline = "y10", group = CYCLE_GROUP, display = NOVAL))
+
+cycVal = array.from(
+     input.int(21,  "", minval = 1, inline = "y1",  group = CYCLE_GROUP, display = NOVAL),
+     input.int(30,  "", minval = 1, inline = "y2",  group = CYCLE_GROUP, display = NOVAL),
+     input.int(45,  "", minval = 1, inline = "y3",  group = CYCLE_GROUP, display = NOVAL),
+     input.int(60,  "", minval = 1, inline = "y4",  group = CYCLE_GROUP, display = NOVAL),
+     input.int(90,  "", minval = 1, inline = "y5",  group = CYCLE_GROUP, display = NOVAL),
+     input.int(120, "", minval = 1, inline = "y6",  group = CYCLE_GROUP, display = NOVAL),
+     input.int(144, "", minval = 1, inline = "y7",  group = CYCLE_GROUP, display = NOVAL),
+     input.int(180, "", minval = 1, inline = "y8",  group = CYCLE_GROUP, display = NOVAL),
+     input.int(270, "", minval = 1, inline = "y9",  group = CYCLE_GROUP, display = NOVAL),
+     input.int(360, "", minval = 1, inline = "y10", group = CYCLE_GROUP, display = NOVAL))
+
+cycCol = array.from(
+     input.color(color.new(#787B86, 40), "", inline = "y1",  group = CYCLE_GROUP, display = NOVAL),
+     input.color(color.new(#787B86, 40), "", inline = "y2",  group = CYCLE_GROUP, display = NOVAL),
+     input.color(color.new(#787B86, 40), "", inline = "y3",  group = CYCLE_GROUP, display = NOVAL),
+     input.color(color.new(#787B86, 40), "", inline = "y4",  group = CYCLE_GROUP, display = NOVAL),
+     input.color(color.new(#2962FF, 20), "", inline = "y5",  group = CYCLE_GROUP, display = NOVAL),
+     input.color(color.new(#787B86, 40), "", inline = "y6",  group = CYCLE_GROUP, display = NOVAL),
+     input.color(color.new(#9C27B0, 30), "", inline = "y7",  group = CYCLE_GROUP, display = NOVAL),
+     input.color(color.new(#FF9800, 10), "", inline = "y8",  group = CYCLE_GROUP, display = NOVAL),
+     input.color(color.new(#2962FF, 20), "", inline = "y9",  group = CYCLE_GROUP, display = NOVAL),
+     input.color(color.new(#FF9800, 10), "", inline = "y10", group = CYCLE_GROUP, display = NOVAL))
+
+cycStyleInput    = input.string("Dotted", "Line Style", options = ["Solid", "Dashed", "Dotted"], group = CYCLE_GROUP, display = NOVAL)
+cycWidthInput    = input.int(1, "Line Width", minval = 1, maxval = 4, group = CYCLE_GROUP, display = NOVAL)
+cycLabelsInput   = input.bool(true, "Show Labels (bar count)", group = CYCLE_GROUP, display = NOVAL)
+cycHidePastInput = input.bool(false, "Hide Past Cycles", group = CYCLE_GROUP, tooltip = "Only show cycles that are still ahead of the last bar.", display = NOVAL)
+
+// ---- Square of 9 Alerts and Dashboard (moved below Gann Time Cycles) ----
+alertInput = input.bool(true, "Alert When Price Crosses a Level", group = ALERT_GROUP, tooltip = "Create the alert with condition 'Any alert() function call'. Only levels visible on the chart (type + max distance filters) trigger alerts.", display = NOVAL)
+
+dashboardInput         = input.bool(true, 'Dashboard', group = DASHBOARD_GROUP, tooltip = dashboardTooltip, display = NOVAL)
+dashboardPositionInput = input.string(TOP_RIGHT, 'Position', group = DASHBOARD_GROUP, tooltip = dashboardPositionTooltip, options = [TOP_RIGHT, BOTTOM_RIGHT, BOTTOM_LEFT], display = NOVAL)
+dashboardSizeInput     = input.string(TINY, 'Size', group = DASHBOARD_GROUP, tooltip = dashboardSizeTooltip, options = [TINY, SMALL, NORMAL, LARGE, HUGE], display = NOVAL)
+
+//=====================================================================================================================
+// 5. TYPES
+//=====================================================================================================================
+type GannBoxState
+    float hi = na
+    float lo = na
+    int hiBar = na
+    int loBar = na
+    bool valid = false
+    bool rising = true
+    int bx0 = na
+    int bx1 = na
+
+type AnchorState
+    float price = na
+    int bar = na
+    bool isLow = true
+    bool changed = false
+    int manualBar = na
+
+type Level
+    float price
+    float degree
+    bool isCardinal
+    bool isKey
+
+//=====================================================================================================================
+// 6. STATE AND STORAGE
+//=====================================================================================================================
+var GannBoxState gb = GannBoxState.new()
+var AnchorState anc = AnchorState.new()
+
+var int[] gx = array.new_int(7, int(na))
+var float[] gy = array.new_float(7, float(na))
+
+var Level[] levels = array.new<Level>()
+
+var box[] boxStore = array.new<box>()
+var line[] gridStore = array.new<line>()
+var label[] boxLabelStore = array.new<label>()
+var line[] fanStore = array.new<line>()
+var label[] fanLabelStore = array.new<label>()
+var polyline[] fanFillStore = array.new<polyline>()
+var line[] angleStore = array.new<line>()
+var polyline[] curveStore = array.new<polyline>()
+var polyline[] curveFillStore = array.new<polyline>()
+var label[] curveLabelStore = array.new<label>()
+
+var line[] sqLineStore = array.new<line>()
+var label[] sqLabelStore = array.new<label>()
+var label[] warnStore = array.new<label>()
+var table[] dashStore = array.new<table>()
+
+var line[] cycLineStore = array.new<line>()
+var label[] cycLabelStore = array.new<label>()
+var label[] cycWarnStore = array.new<label>()
+
+var parsedDashboardPosition = switch dashboardPositionInput
+    TOP_RIGHT    => position.top_right
+    BOTTOM_RIGHT => position.bottom_right
+    BOTTOM_LEFT  => position.bottom_left
+
+var parsedDashboardSize = switch dashboardSizeInput
+    TINY   => size.tiny
+    SMALL  => size.small
+    NORMAL => size.normal
+    LARGE  => size.large
+    HUGE   => size.huge
+
+var parsedCycleStyle = switch cycStyleInput
+    "Solid"  => line.style_solid
+    "Dashed" => line.style_dashed
+    =>          line.style_dotted
+
+var parsedCardStyle = switch cardStyleInput
+    "Solid"  => line.style_solid
+    "Dashed" => line.style_dashed
+    =>          line.style_dotted
+
+var parsedOrdStyle = switch ordStyleInput
+    "Solid"  => line.style_solid
+    "Dashed" => line.style_dashed
+    =>          line.style_dotted
+
+//=====================================================================================================================
+// 7. GENERIC HELPERS
+//=====================================================================================================================
+clearLines(line[] store) =>
+    for l in store
+        line.delete(l)
+    array.clear(store)
+
+clearLabels(label[] store) =>
+    for lb in store
+        label.delete(lb)
+    array.clear(store)
+
+clearBoxes(box[] store) =>
+    for b in store
+        box.delete(b)
+    array.clear(store)
+
+clearPolylines(polyline[] store) =>
+    for p in store
+        polyline.delete(p)
+    array.clear(store)
+
+barIsVisible() => time >= chart.left_visible_bar_time and time <= chart.right_visible_bar_time
+
+degText(float d) => (d > 0 ? "+" : "") + str.tostring(d, "#.#") + " deg"
+
+clampX(int x) => math.max(bar_index - MAX_PAST_BARS, math.min(bar_index + FUTURE_BARS, x))
+
+lvlText(float v) => str.tostring(reverseInput ? 1.0 - v : v, "0.###")
+
+bandColor(color c, int transp, bool rising) => color.new(useOneColor ? (rising ? oneUpColor : oneDnColor) : c, transp)
+
+fanColor(color c, bool rising) => fanUseOne ? (rising ? fanUpColor : fanDnColor) : c
+
+curveColor(color c, bool rising) => curveUseOne ? (rising ? curveUpColor : curveDnColor) : c
+
+//=====================================================================================================================
+// 8. GANN BOX ENGINE
+//=====================================================================================================================
+// Visible Window / Manual Range modes: tracks the highest high / lowest low of the bars inside the window.
+// Resets when a new window starts.
+updateBoxExtremes(GannBoxState s, bool inView, bool windowStart) =>
+    if windowStart
+        s.hi := high
+        s.lo := low
+        s.hiBar := bar_index
+        s.loBar := bar_index
+    else if inView
+        if high >= s.hi
+            s.hi := high
+            s.hiBar := bar_index
+        if low <= s.lo
+            s.lo := low
+            s.loBar := bar_index
+
+// Last Pivots mode: the box uses the most recent confirmed pivot high and pivot low.
+// A pivot is confirmed 'len' bars after it forms, so its bar is bar_index - len.
+updateBoxPivots(GannBoxState s, float ph, float pl, int len) =>
+    if not na(ph)
+        s.hi := ph
+        s.hiBar := bar_index - len
+    if not na(pl)
+        s.lo := pl
+        s.loBar := bar_index - len
+
+// Fills the 7 x (time levels) / 7 y (price levels) grid points. Everything is na when the box is not valid.
+// xs[i] = x position of time level i, ys[i] = price of price level i. s.bx0 / s.bx1 are the left / right box edges.
+updateBoxGeometry(GannBoxState s, int[] xs, float[] ys, float[] pv, float[] tv) =>
+    s.valid := not na(s.hiBar) and not na(s.loBar) and s.hiBar != s.loBar and s.hi > s.lo
+    if s.valid
+        s.rising := s.loBar < s.hiBar
+        int x0 = math.min(s.hiBar, s.loBar)
+        int endBar = math.max(s.hiBar, s.loBar)
+        int x6 = extendInput ? math.min(bar_index + FUTURE_BARS, endBar + (endBar - x0)) : endBar
+        float y0 = s.rising ? s.lo : s.hi
+        float y6 = s.rising ? s.hi : s.lo
+        s.bx0 := x0
+        s.bx1 := x6
+        for i = 0 to 6
+            xs.set(i, clampX(math.round(x0 + (x6 - x0) * tv.get(i))))
+            ys.set(i, y0 + (y6 - y0) * pv.get(i))
+    else
+        s.bx0 := na
+        s.bx1 := na
+        array.fill(xs, int(na))
+        array.fill(ys, float(na))
+
+// Background bands between consecutive enabled levels (price = horizontal bands, time = vertical bands).
+renderBackground(bool enabled, box[] store, GannBoxState s, int[] xs, float[] ys) =>
+    clearBoxes(store)
+    if enabled
+        if priceBgOn
+            int prevP = -1
+            for i = 0 to 6
+                if priceOn.get(i)
+                    if prevP >= 0
+                        float yA = ys.get(prevP)
+                        float yB = ys.get(i)
+                        store.push(box.new(s.bx0, math.max(yA, yB), s.bx1, math.min(yA, yB), border_color = na, bgcolor = bandColor(priceCol.get(i), priceBgTransp, s.rising)))
+                    prevP := i
+        if timeBgOn
+            int prevT = -1
+            for i = 0 to 6
+                if timeOn.get(i)
+                    if prevT >= 0
+                        store.push(box.new(xs.get(prevT), s.hi, xs.get(i), s.lo, border_color = na, bgcolor = bandColor(timeCol.get(i), timeBgTransp, s.rising)))
+                    prevT := i
+
+// Level lines: horizontal for price levels, vertical for time levels.
+renderGrid(bool enabled, line[] store, GannBoxState s, int[] xs, float[] ys) =>
+    clearLines(store)
+    if enabled
+        for i = 0 to 6
+            if priceOn.get(i)
+                store.push(line.new(s.bx0, ys.get(i), s.bx1, ys.get(i), color = priceCol.get(i), width = 1))
+            if timeOn.get(i)
+                store.push(line.new(xs.get(i), s.lo, xs.get(i), s.hi, color = timeCol.get(i), width = 1))
+
+// Left / right labels for price levels, top / bottom labels for time levels.
+renderBoxLabels(bool enabled, label[] store, GannBoxState s, int[] xs, float[] ys) =>
+    clearLabels(store)
+    if enabled
+        for i = 0 to 6
+            if priceOn.get(i)
+                string pTxt = lvlText(priceVal.get(i))
+                if showLeftLbl
+                    store.push(label.new(s.bx0, ys.get(i), text = pTxt, textcolor = priceCol.get(i), color = color.new(color.white, 100), style = label.style_label_right))
+                if showRightLbl
+                    store.push(label.new(s.bx1, ys.get(i), text = pTxt, textcolor = priceCol.get(i), color = color.new(color.white, 100), style = label.style_label_left))
+            if timeOn.get(i)
+                string tTxt = lvlText(timeVal.get(i))
+                if showTopLbl
+                    store.push(label.new(xs.get(i), s.hi, text = tTxt, textcolor = timeCol.get(i), color = color.new(color.white, 100), style = label.style_label_down))
+                if showBottomLbl
+                    store.push(label.new(xs.get(i), s.lo, text = tTxt, textcolor = timeCol.get(i), color = color.new(color.white, 100), style = label.style_label_up))
+
+// Gann fan: every line starts at the box start corner. 1/1 is the box diagonal, other lines are that slope x ratio.
+// Lines with ratio <= 1 end on the right edge of the box, steeper lines end on the top / bottom edge.
+renderFan(bool enabled, line[] lineStore, label[] labelStore, polyline[] fillStore, GannBoxState s) =>
+    clearLines(lineStore)
+    clearLabels(labelStore)
+    clearPolylines(fillStore)
+    if enabled
+        float yS = s.rising ? s.lo : s.hi
+        float yE = s.rising ? s.hi : s.lo
+        int prevX = na
+        float prevY = na
+        for i = 0 to 8
+            if fanOn.get(i)
+                float r = fanRatio.get(i)
+                int ex = r <= 1.0 ? s.bx1 : math.round(s.bx0 + (s.bx1 - s.bx0) / r)
+                float ey = r <= 1.0 ? yS + (yE - yS) * r : yE
+                color c = fanColor(fanCol.get(i), s.rising)
+                lineStore.push(line.new(s.bx0, yS, ex, ey, color = c))
+                if fanBgOn and not na(prevX)
+                    array<chart.point> pts = array.new<chart.point>()
+                    pts.push(chart.point.from_index(s.bx0, yS))
+                    pts.push(chart.point.from_index(prevX, prevY))
+                    pts.push(chart.point.from_index(ex, ey))
+                    fillStore.push(polyline.new(pts, false, true, line_color = na, fill_color = color.new(c, fanBgTransp)))
+                if fanLblOn
+                    labelStore.push(label.new(ex, ey, text = fanText.get(i), textcolor = c, color = color.new(color.white, 100), style = r <= 1.0 ? label.style_label_left : (s.rising ? label.style_label_down : label.style_label_up)))
+                prevX := ex
+                prevY := ey
+
+// Gann curves: each enabled curve is a quarter-ellipse from the box start corner. Its time / price reach is
+// the curve's own value (0.25 ... 1.0) of the box width / height. A label with the value sits at the curve midpoint.
+// Background fills the band between consecutive enabled curves (the first one fills back to the start corner).
+renderCurves(bool enabled, polyline[] store, polyline[] fillStore, label[] lblStore, GannBoxState s) =>
+    clearPolylines(store)
+    clearPolylines(fillStore)
+    clearLabels(lblStore)
+    if enabled
+        float yS = s.rising ? s.lo : s.hi
+        float yE = s.rising ? s.hi : s.lo
+        array<chart.point> prevPts = na
+        for i = 0 to 5
+            if curveOn.get(i)
+                float v = curveVal.get(i)
+                color c = curveColor(ccol.get(i), s.rising)
+                int xv = clampX(math.round(s.bx0 + (s.bx1 - s.bx0) * v))
+                float yv = yS + (yE - yS) * v
+                array<chart.point> pts = array.new<chart.point>()
+                for j = 0 to 90
+                    float rad = math.toradians(j)
+                    int px = math.round(s.bx0 - (s.bx0 - xv) * math.sin(rad))
+                    float py = yS + math.cos(rad) * (yv - yS)
+                    pts.push(chart.point.from_index(px, py))
+                if curveBgOn
+                    array<chart.point> poly = array.copy(pts)
+                    if na(prevPts)
+                        poly.push(chart.point.from_index(s.bx0, yS))
+                    else
+                        for k = array.size(prevPts) - 1 to 0
+                            poly.push(prevPts.get(k))
+                    fillStore.push(polyline.new(poly, false, true, line_color = na, fill_color = color.new(c, curveBgTransp)))
+                store.push(polyline.new(pts, false, false, line_color = c))
+                if showCurveLbl
+                    float radM = math.toradians(45)
+                    int mx = math.round(s.bx0 - (s.bx0 - xv) * math.sin(radM))
+                    float my = yS + math.cos(radM) * (yv - yS)
+                    lblStore.push(label.new(mx, my, text = lvlText(v), textcolor = c, color = color.new(color.white, 100), style = label.style_label_center))
+                prevPts := pts
+
+renderAngles(bool enabled, line[] store, GannBoxState s, int[] xs, float[] ys) =>
+    clearLines(store)
+    if enabled
+        int x0 = s.bx0
+        int x6 = s.bx1
+        float y0 = s.rising ? s.lo : s.hi
+        float y6 = s.rising ? s.hi : s.lo
+        for i = 0 to 6
+            int xx = xs.get(i)
+            float yy = ys.get(i)
+            if i > 0
+                store.push(line.new(x0, y0, xx, y6, color = acol))
+                store.push(line.new(x0, y0, x6, yy, color = acol))
+                store.push(line.new(x0, y6, xx, y0, color = acol))
+                store.push(line.new(x0, y6, x6, yy, color = acol))
+            if i < 6
+                store.push(line.new(x6, y6, xx, y0, color = acol))
+                store.push(line.new(x6, y6, x0, yy, color = acol))
+                store.push(line.new(x6, y0, xx, y6, color = acol))
+                store.push(line.new(x6, y0, x0, yy, color = acol))
+
+//=====================================================================================================================
+// 9. SQUARE OF 9 ENGINE
+//=====================================================================================================================
+// Anchor selection (pivot values are computed at global scope, every bar).
+updateAnchor(AnchorState a, float ph, float pl) =>
+    a.changed := false
+    if anchorTypeInput == "Manual"
+        if na(a.manualBar) and time >= manualTimeInput
+            a.manualBar := bar_index
+            if manualPriceInput > 0.0
+                a.price := manualPriceInput
+                a.bar := bar_index
+                a.isLow := manualIsLowInput
+                a.changed := true
+    else
+        bool useHigh = anchorTypeInput == "Auto pivot" or anchorTypeInput == "Pivot High"
+        bool useLow = anchorTypeInput == "Auto pivot" or anchorTypeInput == "Pivot Low"
+        if useHigh and not na(ph)
+            a.price := ph
+            a.bar := bar_index - pivotLookbackInput
+            a.isLow := false
+            a.changed := true
+        if useLow and not na(pl)
+            a.price := pl
+            a.bar := bar_index - pivotLookbackInput
+            a.isLow := true
+            a.changed := true
+
+// Price = (sqrt(Anchor) + Degree / 180) ^ 2
+buildLevels(Level[] arr, float anchorPrice) =>
+    array.clear(arr)
+    float root = math.sqrt(anchorPrice)
+    int steps = int(math.round(360.0 / degreeStepInput))
+    for cy = 0 to cyclesInput - 1
+        for k = 1 to steps
+            float deg = cy * 360.0 + k * degreeStepInput
+            bool isCard = deg % 90.0 == 0.0
+            bool isKeyLvl = deg % 180.0 == 0.0
+            if directionInput != "Down"
+                arr.push(Level.new(math.pow(root + deg / 180.0, 2), deg, isCard, isKeyLvl))
+            if directionInput != "Up"
+                float r = root - deg / 180.0
+                if r > 0.0
+                    arr.push(Level.new(math.pow(r, 2), -deg, isCard, isKeyLvl))
+
+isTypeShown(Level lvl) => (lvl.isCardinal and showCardinalInput) or (not lvl.isCardinal and showOrdinalInput)
+
+isVisible(Level lvl, float refPrice) =>
+    bool distOk = maxDistInput <= 0.0 or (refPrice > 0.0 and math.abs(lvl.price - refPrice) / refPrice * 100.0 <= maxDistInput)
+    isTypeShown(lvl) and distOk
+
+levelColor(Level lvl) => lvl.isKey ? keyColorInput : lvl.isCardinal ? cardinalColorInput : ordinalColorInput
+
+// Level label text: "degree / price" on one line when the toggle is on, otherwise price below the degree.
+levelLabelText(Level lvl) =>
+    string sep = labelOneLineInput ? " / " : "\n"
+    degText(lvl.degree) + sep + str.tostring(lvl.price, format.mintick)
+
+// Returns a text list of every visible level crossed by the last close (empty string = none).
+checkLevelCross(Level[] lv, float prevClose) =>
+    string hit = ""
+    for l in lv
+        bool crossed = (prevClose < l.price and close >= l.price) or (prevClose > l.price and close <= l.price)
+        if crossed and isVisible(l, close)
+            hit += degText(l.degree) + " @ " + str.tostring(l.price, format.mintick) + "  "
+    hit
+
+renderSquare(bool enabled, line[] lineStore, label[] labelStore, Level[] lv, AnchorState a) =>
+    clearLines(lineStore)
+    clearLabels(labelStore)
+    if enabled
+        int xEnd = bar_index + 10
+        int xAnchor = math.max(a.bar, bar_index - MAX_PAST_BARS)
+        if showAnchorLineInput
+            lineStore.push(line.new(xAnchor, a.price, xEnd, a.price, color = anchorColorInput, style = line.style_dotted, width = 1, extend = extendRightInput ? extend.right : extend.none))
+        if showAnchorLabelInput
+            labelStore.push(label.new(xAnchor, a.price, "Anchor", style = a.isLow ? label.style_label_up : label.style_label_down, color = anchorColorInput, textcolor = color.black, size = size.tiny))
+        for lvl in lv
+            if isVisible(lvl, close)
+                color lvlColor = levelColor(lvl)
+                int lvlWidth = lvl.isCardinal ? (lvl.isKey ? cardWidthInput + 1 : cardWidthInput) : ordWidthInput
+                lineStore.push(line.new(xAnchor, lvl.price, xEnd, lvl.price, color = lvlColor, style = lvl.isCardinal ? parsedCardStyle : parsedOrdStyle, width = lvlWidth, extend = extendRightInput ? extend.right : extend.none))
+                if levelLabelsInput
+                    labelStore.push(label.new(xEnd, lvl.price, levelLabelText(lvl), color = #00000000, style = label.style_label_left, textcolor = lvlColor, size = size.small))
+
+renderWarning(label[] store, AnchorState a) =>
+    clearLabels(store)
+    string warnText = ""
+    if masterOn and showSquare and anchorTypeInput == "Manual"
+        if manualPriceInput <= 0.0
+            warnText := "Gann: set Manual Anchor Price > 0"
+        else if na(a.manualBar)
+            warnText := "Gann: Manual Anchor Time is after the last bar"
+    if warnText != ""
+        store.push(label.new(bar_index, high, warnText, style = label.style_label_down, color = color.new(color.orange, 0), textcolor = color.black, size = size.small))
+
+//=====================================================================================================================
+// 9B. GANN TIME CYCLES ENGINE
+//=====================================================================================================================
+// A full-height vertical line at originBar + each enabled cycle length.
+renderTimeCycles(bool enabled, line[] lineStore, label[] labelStore, int originBar) =>
+    clearLines(lineStore)
+    clearLabels(labelStore)
+    if enabled
+        for i = 0 to array.size(cycVal) - 1
+            if cycOn.get(i)
+                int n = cycVal.get(i)
+                int xc = originBar + n
+                bool inWindow   = xc <= bar_index + FUTURE_BARS and xc >= bar_index - MAX_PAST_BARS
+                bool hiddenPast = cycHidePastInput and xc < bar_index
+                if inWindow and not hiddenPast
+                    color cc = cycCol.get(i)
+                    lineStore.push(line.new(xc, close, xc, close + syminfo.mintick, color = cc, style = parsedCycleStyle, width = cycWidthInput, extend = extend.both))
+                    if cycLabelsInput
+                        labelStore.push(label.new(xc, close, str.tostring(n), style = label.style_label_down, color = color.new(color.white, 100), textcolor = color.new(cc, 0), size = size.small))
+
+renderCycleWarning(label[] store, bool show, string txt) =>
+    clearLabels(store)
+    if show
+        store.push(label.new(bar_index, low, txt, style = label.style_label_up, color = color.new(color.orange, 0), textcolor = color.black, size = size.small))
+
+//=====================================================================================================================
+// 10. MAIN - PER-BAR CALCULATION
+//=====================================================================================================================
+// Gann Box. Box Anchor decides which bars define the box:
+//   Visible Window = bars on screen, Manual Range = bars between start and end, Last Pivots = last confirmed pivots.
+float boxPivHigh = ta.pivothigh(high, boxPivotLenInput, boxPivotLenInput)
+float boxPivLow = ta.pivotlow(low, boxPivotLenInput, boxPivotLenInput)
+bool inRange = time >= boxRangeStartInput and time <= boxRangeEndInput
+bool inBox = boxAnchorInput == BA_MANUAL ? inRange : barIsVisible()
+bool boxStart = inBox and not inBox[1]
+if boxAnchorInput == BA_PIVOTS
+    updateBoxPivots(gb, boxPivHigh, boxPivLow, boxPivotLenInput)
+else
+    updateBoxExtremes(gb, inBox, boxStart)
+updateBoxGeometry(gb, gx, gy, priceVal, timeVal)
+
+// Square of 9 anchor and levels
+float pHigh = ta.pivothigh(high, pivotLookbackInput, pivotLookbackInput)
+float pLow = ta.pivotlow(low, pivotLookbackInput, pivotLookbackInput)
+float prevClose = close[1]
+updateAnchor(anc, pHigh, pLow)
+bool anchorReady = not na(anc.price) and anc.price > 0.0
+if anchorReady and (anc.changed or barstate.islast)
+    buildLevels(levels, anc.price)
+
+// Gann Time Cycles origin (bar index the cycle lengths are counted from).
+//   Anchor         = pivot anchor (or the manual anchor bar, which needs no price)
+//   Gann Box Start = left edge of the Gann Box
+int ancOrigin = anchorTypeInput == "Manual" ? anc.manualBar : anc.bar
+int boxOrigin = gb.valid ? gb.bx0 : na
+int cycleOrigin = cycleOriginInput == "Gann Box Start" ? boxOrigin : ancOrigin
+
+bool sqReady = showSquare and anchorReady and array.size(levels) > 0
+
+//=====================================================================================================================
+// 11. ALERTS
+//=====================================================================================================================
+// ta.* calls stay at global scope and run on every bar (consistent history, no short-circuit skipping).
+cu0 = ta.crossunder(low, gy.get(0))
+co0 = ta.crossover(high, gy.get(0))
+cu1 = ta.crossunder(low, gy.get(1))
+co1 = ta.crossover(high, gy.get(1))
+cu2 = ta.crossunder(low, gy.get(2))
+co2 = ta.crossover(high, gy.get(2))
+cu3 = ta.crossunder(low, gy.get(3))
+co3 = ta.crossover(high, gy.get(3))
+cu4 = ta.crossunder(low, gy.get(4))
+co4 = ta.crossover(high, gy.get(4))
+cu5 = ta.crossunder(low, gy.get(5))
+co5 = ta.crossover(high, gy.get(5))
+
+alertcondition(masterOn and (cu0 or co0), "Gann Box Breakout", "Price breaks out from Gann Box")
+alertcondition(masterOn and (cu1 or co1), "Gann Box Breakout Level 1", "Price breaks Level 1")
+alertcondition(masterOn and (cu2 or co2), "Gann Box Breakout Level 2", "Price breaks Level 2")
+alertcondition(masterOn and (cu3 or co3), "Gann Box Breakout Level 3", "Price breaks Level 3")
+alertcondition(masterOn and (cu4 or co4), "Gann Box Breakout Level 4", "Price breaks Level 4")
+alertcondition(masterOn and (cu5 or co5), "Gann Box Breakout Level 5", "Price breaks Level 5")
+
+// Square of 9 level-cross alert: realtime only, skipped on the bar where the anchor (and so every level) changed.
+if masterOn and showSquare and alertInput and barstate.isrealtime and anchorReady and not anc.changed and bar_index > 0 and array.size(levels) > 0
+    string hit = checkLevelCross(levels, prevClose)
+    if hit != ""
+        alert(syminfo.ticker + " crossed Gann level: " + hit, alert.freq_once_per_bar_close)
+
+//=====================================================================================================================
+// 12. MAIN - RENDERING (last bar only)
+//=====================================================================================================================
+if barstate.islast
+    renderBackground(masterOn and gb.valid and showBox, boxStore, gb, gx, gy)
+    renderGrid(masterOn and gb.valid and showBox, gridStore, gb, gx, gy)
+    renderBoxLabels(masterOn and gb.valid and showBox, boxLabelStore, gb, gx, gy)
+    renderFan(masterOn and gb.valid and showFan, fanStore, fanLabelStore, fanFillStore, gb)
+    renderCurves(masterOn and gb.valid and showCurve, curveStore, curveFillStore, curveLabelStore, gb)
+    renderAngles(masterOn and gb.valid and showAngles, angleStore, gb, gx, gy)
+    renderSquare(masterOn and sqReady, sqLineStore, sqLabelStore, levels, anc)
+    renderWarning(warnStore, anc)
+
+    // Gann Time Cycles (independent of the Square of 9 master switch)
+    bool cycOriginOk = not na(cycleOrigin)
+    renderTimeCycles(masterOn and showTimeInput and cycOriginOk, cycLineStore, cycLabelStore, cycleOrigin)
+
+    string cycWarnText = ""
+    if showTimeInput and not cycOriginOk
+        if cycleOriginInput == "Gann Box Start"
+            cycWarnText := "Gann Cycles: no valid Gann Box start (check Box Anchor settings)"
+        else if anchorTypeInput == "Manual"
+            cycWarnText := "Gann Cycles: Manual Anchor Time is after the last bar"
+        else
+            cycWarnText := "Gann Cycles: no pivot found yet - try a smaller Pivot Lookback"
+    renderCycleWarning(cycWarnStore, masterOn and cycWarnText != "", cycWarnText)
+
+//=====================================================================================================================
+// 13. DASHBOARD (moved to the end of the script)
+//=====================================================================================================================
+setCell(table tbl, int col, int row, string txt, color tc = #FFFFFF, string align = text.align_right, color bg = na) =>
+    table.cell(tbl, col, row, txt, text_color = tc, text_size = parsedDashboardSize, text_halign = align, bgcolor = bg)
+
+setDivider(table tbl, int row) =>
+    table.merge_cells(tbl, 0, row, 2, row)
+    table.cell(tbl, 0, row, "", height = 0.3, bgcolor = BORDERS)
+
+renderDashboard(bool enabled, table[] store, AnchorState a, Level[] lv, int cycOrigin) =>
+    for tb in store
+        table.delete(tb)
+    array.clear(store)
+    if enabled
+        table tbl = table.new(parsedDashboardPosition, 3, 13, bgcolor = BACKGROUND, border_width = 0, frame_color = BORDERS, frame_width = 1, force_overlay = true)
+        store.push(tbl)
+        float curAngle = (math.sqrt(close) - math.sqrt(a.price)) * 180.0
+        float wrapAngle = ((curAngle % 360.0) + 360.0) % 360.0
+        bool cycReady = showTimeInput and not na(cycOrigin)
+        int elapsed = cycReady ? bar_index - cycOrigin : 0
+        int nextCycle = na
+        if cycReady
+            for i = 0 to array.size(cycVal) - 1
+                if cycOn.get(i)
+                    int n = cycVal.get(i)
+                    if n > elapsed and (na(nextCycle) or n < nextCycle)
+                        nextCycle := n
+        float[] prices = array.new_float()
+        for l in lv
+            prices.push(l.price)
+        int[] sortedIdx = array.sort_indices(prices, order.ascending)
+        Level[] aboveLv = array.new<Level>()
+        Level[] belowLv = array.new<Level>()
+        int total = array.size(sortedIdx)
+        for i = 0 to total - 1
+            Level lv1 = lv.get(sortedIdx.get(i))
+            if lv1.price > close and isVisible(lv1, close) and array.size(aboveLv) < 3
+                aboveLv.push(lv1)
+        for j = total - 1 to 0
+            Level lv2 = lv.get(sortedIdx.get(j))
+            if lv2.price < close and isVisible(lv2, close) and array.size(belowLv) < 3
+                belowLv.push(lv2)
+        table.merge_cells(tbl, 0, 0, 2, 0)
+        setCell(tbl, 0, 0, "Vibration Levels", DATA, text.align_center)
+        setDivider(tbl, 1)
+        setCell(tbl, 0, 2, "Anchor", HEADERS, text.align_left)
+        setCell(tbl, 1, 2, str.tostring(a.price, format.mintick), DATA)
+        setCell(tbl, 2, 2, anchorTypeInput == "Manual" ? "Manual" : (a.isLow ? "Low" : "High"), a.isLow ? BULL_COLOR : BEAR_COLOR)
+        setCell(tbl, 0, 3, "Price Angle", HEADERS, text.align_left)
+        setCell(tbl, 1, 3, degText(math.round(curAngle * 10) / 10.0), DATA)
+        setCell(tbl, 2, 3, str.tostring(wrapAngle, "#.#") + " deg / " + str.tostring(curAngle / 360.0, "#.##") + "x", HEADERS)
+        setCell(tbl, 0, 4, "Next Time Cycle", HEADERS, text.align_left)
+        setCell(tbl, 1, 4, na(nextCycle) ? "-" : str.tostring(nextCycle) + " bars", DATA)
+        setCell(tbl, 2, 4, na(nextCycle) ? (cycReady ? "done" : "off") : "in " + str.tostring(nextCycle - elapsed), HEADERS)
+        setDivider(tbl, 5)
+        for i = 0 to array.size(aboveLv) - 1
+            Level up = aboveLv.get(i)
+            int rowUp = 8 - i
+            setCell(tbl, 0, rowUp, degText(up.degree), levelColor(up), text.align_left)
+            setCell(tbl, 1, rowUp, str.tostring(up.price, format.mintick), DATA, text.align_center)
+            setCell(tbl, 2, rowUp, "+" + str.tostring((up.price - close) / close * 100.0, "#.##") + "%", BEAR_COLOR)
+        table.merge_cells(tbl, 0, 9, 2, 9)
+        setCell(tbl, 0, 9, "Price  " + str.tostring(close, format.mintick), DATA, text.align_center, color.new(color.gray, 70))
+        for i = 0 to array.size(belowLv) - 1
+            Level dn = belowLv.get(i)
+            int rowDn = 10 + i
+            setCell(tbl, 0, rowDn, degText(dn.degree), levelColor(dn), text.align_left)
+            setCell(tbl, 1, rowDn, str.tostring(dn.price, format.mintick), DATA, text.align_center)
+            setCell(tbl, 2, rowDn, str.tostring((dn.price - close) / close * 100.0, "#.##") + "%", BULL_COLOR)
+
+if barstate.islast
+    renderDashboard(masterOn and sqReady and dashboardInput, dashStore, anc, levels, cycleOrigin)
