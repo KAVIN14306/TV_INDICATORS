@@ -1,0 +1,385 @@
+// This source code is subject to the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Kavin_Palanisamy
+//+----------------------- -------------------------------------------+
+//@version=6
+indicator(title = 'RSI Div + MACD + Volume Div & ORB', shorttitle = 'RSI + MACD', overlay = false, max_lines_count = 500, max_bars_back = 1000)
+
+// =============================================================================
+// GROUP 1: RSI DIVERGENCE SETTINGS
+ma(source, length, type) =>
+    switch type
+        'SMA' => ta.sma(source, length)
+        'EMA' => ta.ema(source, length)
+        'SMMA (RMA)' => ta.rma(source, length)
+        'WMA' => ta.wma(source, length)
+        'VWMA' => ta.vwma(source, length)
+
+oscSrc         = input.source(close, 'Source', inline = 'A', group = 'Oscillator')
+oscLen         = input.int(14, minval = 1, title = 'Length', inline = 'B', group = 'Oscillator')
+maTypeInput    = input.string('SMA', title = 'Type', options = ['SMA', 'EMA', 'SMMA (RMA)', 'WMA', 'VWMA'], inline = 'C', group = 'Moving Average')
+maLengthInput  = input.int(14, title = 'Length', inline = 'D', group = 'Moving Average')
+plotBull       = input(true, title = 'Bullish', inline = 'A', group = 'Divergence Plots')
+plotBear       = input(true, title = 'Bearish', inline = 'A', group = 'Divergence Plots')
+lbR            = 5
+lbL            = 5
+rangeUpper     = 60
+rangeLower     = 5
+osc   = ta.rsi(oscSrc, oscLen)
+oscMA = ma(osc, maLengthInput, maTypeInput)
+_inRange(cond) =>
+    bars = ta.barssince(cond == true)
+    rangeLower <= bars and bars <= rangeUpper
+plFound = not na(ta.pivotlow(osc, lbL, lbR))
+phFound = not na(ta.pivothigh(osc, lbL, lbR))
+plFoundInRange = _inRange(plFound[1])
+phFoundInRange = _inRange(phFound[1])
+oscHL = osc[lbR] > ta.valuewhen(plFound, osc[lbR], 1) and plFoundInRange
+oscLH = osc[lbR] < ta.valuewhen(phFound, osc[lbR], 1) and phFoundInRange
+priceLL = low[lbR]  < ta.valuewhen(plFound, low[lbR], 1)
+priceHH = high[lbR] > ta.valuewhen(phFound, high[lbR], 1)
+bullCond = plotBull and priceLL and oscHL and plFound
+bearCond = plotBear and priceHH and oscLH and phFound
+noneColor = color.new(color.white, 100)
+oscUB = hline(70, 'Upper Bound', color = color.new(#787B86, 50))
+oscMB = hline(50, 'Middle Bound', color = color.new(#787B86, 50))
+oscLB = hline(30, 'Lower Bound', color = color.new(#787B86, 50))
+fill(oscUB, oscLB, color = color.rgb(126, 87, 194, 90), title = 'Background Fill')
+
+// =============================================================================
+// GROUP 1.5: PRICE SCALE VISIBILITY TOGGLES
+// =============================================================================
+g_scale = "Price Scale Visibility"
+showRsiScale  = input.bool(true, "RSI Price Scale Value",                    group = g_scale, tooltip = "Show/hide the live RSI and RSI-MA values on this pane's price scale (right axis).")
+showMacdScale = input.bool(true, "MACD / Signal / Histogram Price Scale Value", group = g_scale, tooltip = "Show/hide the live MACD, Signal and Histogram values on this pane's price scale (right axis).")
+showVolScale  = input.bool(true, "Volume Osc Price Scale Value",             group = g_scale, tooltip = "Show/hide the live Volume oscillator and its signal values on this pane's price scale (right axis).")
+showOrbScale  = input.bool(true, "ORB Price Scale Value",                    group = g_scale, tooltip = "Show/hide the live OR High/Low values on the main chart's price scale (right axis).")
+
+dispBase = display.pane + display.status_line + display.data_window
+
+oscRSI = plot(osc, title = 'RSI', linewidth = 1, color = color.rgb(130, 100, 220), display = dispBase + (showRsiScale ? display.price_scale : display.none))
+plot(oscMA, title = 'RSI-based MA', color = color.new(color.yellow, 20), display = dispBase + (showRsiScale ? display.price_scale : display.none))
+midLinePlot = plot(50, color = na, editable = false, display = display.none)
+fill(oscRSI, midLinePlot, 100, 70, top_color = color.new(color.red, 0), bottom_color = color.new(color.red, 100), title = 'Overbought Gradient Fill')
+fill(oscRSI, midLinePlot, 30, 0, top_color = color.new(color.green, 100), bottom_color = color.new(color.green, 0), title = 'Oversold Gradient Fill')
+plot(plFound ? osc[lbR] : na, offset = -lbR, title = 'Regular Bullish', linewidth = 2, color = bullCond ? color.green : noneColor, display = display.pane)
+plot(phFound ? osc[lbR] : na, offset = -lbR, title = 'Regular Bearish', linewidth = 2, color = bearCond ? color.red : noneColor, display = display.pane)
+plotshape(bullCond ? osc[lbR] : na, title = 'Bull Label', text = 'Bull', style = shape.labelup, location = location.absolute, color = color.green, textcolor = color.white, size = size.auto, offset = -lbR, display = display.pane)
+plotshape(bearCond ? osc[lbR] : na, title = 'Bear Label', text = 'Bear', style = shape.labeldown, location = location.absolute, color = color.red, textcolor = color.white, size = size.auto, offset = -lbR, display = display.pane)
+alertcondition(bullCond, title = 'Bullish Divergence', message = 'Bullish Divergence')
+alertcondition(bearCond, title = 'Bearish Divergence', message = 'Bearish Divergence')
+
+// =============================================================================
+// GROUP 2: MACD SETTINGS
+// =============================================================================
+g_macd = "MACD Settings"
+
+srcd          = input.source(close, 'MACD Source', group = g_macd, tooltip = "Source price for MACD calculation")
+fast_length   = input.int(12, 'Fast Length', minval = 1, group = g_macd, tooltip = "Fast EMA period for MACD")
+slow_length   = input.int(26, 'Slow Length', minval = 1, group = g_macd, tooltip = "Slow EMA period for MACD")
+signal_length = input.int(9, 'Signal Smoothing', minval = 1, group = g_macd, tooltip = "Signal line smoothing period")
+sma_source    = input.bool(false, 'Simple MA (Oscillator)', group = g_macd, tooltip = "Use SMA instead of EMA for MACD line")
+sma_signal    = input.bool(false, 'Simple MA (Signal Line)', group = g_macd, tooltip = "Use SMA instead of EMA for MACD line")
+scale_lb      = input.int(200, 'Scale Lookback', minval = 10, group = g_macd, tooltip = "Lookback period to calculate range for scaling MACD to fit RSI pane")
+
+// =============================================================================
+// GROUP 3: VOLUME DIVERGENCE DISPLAY SETTINGS
+// =============================================================================
+g_vol_display = "Volume Divergence Display"
+
+volOffsetGap = input.int(20, 'Gap Above RSI', minval = 0, group = g_vol_display, tooltip = "Vertical clearance between RSI top (100) and Volume Divergence band")
+
+// =============================================================================
+// GROUP 4: OPENING RANGE BREAKOUT — inputs, market filter, today filter
+// (Consolidated from the standalone ORB indicator — declared once, used by
+//  the calculation/plotting block in GROUP 5 below.)
+// =============================================================================
+g_orb = "Opening Range Breakout"
+enableOrb = input.bool(true, title = "Enable Opening Range Breakout", group = g_orb, tooltip = "Master switch for the whole Opening Range Breakout section. OFF hides the OR High/Low lines, breakout markers, price-scale/status-line values, the market detection label, and stops the ORB breakout alerts from firing.")
+sessTime = input.session("0915-0930", title = "Opening Range Session", group = g_orb)
+
+orHighCol    = input.color(color.new(color.green, 0), title = "OR High", group = g_orb)
+orLowCol     = input.color(color.new(color.red, 0),   title = "OR Low",  group = g_orb)
+showOrHigh   = input.bool(true, title = "Show OR High", group = g_orb)
+showOrLow    = input.bool(true, title = "Show OR Low",  group = g_orb)
+orbLineWidth = input.int(1, title = "ORB Line Width", minval = 1, maxval = 4, group = g_orb)
+
+g_style = "Style"
+displayMode   = input.string("All Days", title = "Display Range", options = ["All Days", "Today Only"], group = g_style, tooltip = "All Days plots the OR lines/breaks on every historical day. Today Only shows just the current day's OR on the chart.")
+continuousOrb = input.bool(false, title = "Continuous ORB Line (connect across days)", group = g_style, tooltip = "ON: OR High/Low draw as one continuous plot that visually joins each day's level to the next (the diagonal/vertical connector lines). OFF: each day's OR High/Low is drawn as its own separate, unconnected line segment.")
+
+g_market = "Market Filter"
+restrictToIndia = input.bool(true, title = "Only Show on Indian Markets", group = g_market, tooltip = "Auto-detects Nifty 50, Bank Nifty, Fin Nifty, Sensex, GIFT Nifty, and NSE/BSE-listed stocks. Turn off to allow any symbol.")
+showStatusLabel = input.bool(true, title = "Show Market Detection Label", group = g_market)
+
+// ── Market detection ─────────────────────────────────────
+// syminfo.country covers NSE/BSE/NFO/BFO/MCX/CDS and NSE IX (GIFT City),
+// since all of those are registered as India ("IN"). Ticker-name matching
+// is a fallback for feeds/brokers that report country differently for
+// index or GIFT Nifty symbols.
+tkr  = syminfo.ticker
+exch = syminfo.prefix
+
+isIndianCountry  = syminfo.country == "IN"
+isIndianExchange = str.contains(exch, "NSE") or str.contains(exch, "BSE") or str.contains(exch, "MCX") or str.contains(exch, "NFO") or str.contains(exch, "BFO") or str.contains(exch, "CDS")
+isIndianTicker   = str.contains(tkr, "NIFTY") or str.contains(tkr, "SENSEX") or str.contains(tkr, "BANKEX")
+
+isIndianMarket = isIndianCountry or isIndianExchange or isIndianTicker
+marketOk = not restrictToIndia or isIndianMarket
+
+// ── Today-only filter ───────────────────────────────────
+// Compares each bar's calendar date to the actual current date, so on a
+// live/intraday chart "Today Only" always tracks the real current session.
+isToday     = year(time) == year(timenow) and month(time) == month(timenow) and dayofmonth(time) == dayofmonth(timenow)
+showThisBar = enableOrb and (displayMode == "All Days" or isToday) and marketOk
+
+// =============================================================================
+// COLORS
+// =============================================================================
+bearColor = color.maroon
+bullColor = color.green
+textColor = color.white
+
+col_grow_above = #26A69A
+col_grow_below = #FFC1D5
+col_fall_above = #B2DFDB
+col_fall_below = #EF5550
+col_macd = #2962ff
+col_signal = #e65100
+
+// =============================================================================
+// MACD & SCALING
+// =============================================================================
+fast_ma = sma_source ? ta.sma(srcd, fast_length) : ta.ema(srcd, fast_length)
+slow_ma = sma_source ? ta.sma(srcd, slow_length) : ta.ema(srcd, slow_length)
+macd = fast_ma - slow_ma
+signal = sma_signal ? ta.sma(macd, signal_length) : ta.ema(macd, signal_length)
+hist = macd - signal
+
+rsi_high = ta.highest(osc, scale_lb)
+rsi_low  = ta.lowest(osc, scale_lb)
+rsi_range = rsi_high - rsi_low
+rsi_range := rsi_range == 0 ? 0.0001 : rsi_range
+
+hist_range   = ta.highest(hist, scale_lb) - ta.lowest(hist, scale_lb)
+macd_range   = ta.highest(macd, scale_lb) - ta.lowest(macd, scale_lb)
+signal_range = ta.highest(signal, scale_lb) - ta.lowest(signal, scale_lb)
+
+overall_range = math.max(hist_range, math.max(macd_range, signal_range))
+overall_range := overall_range == 0 ? 0.0001 : overall_range
+
+scale_factor = rsi_range / overall_range
+
+scaled_hist = hist * scale_factor
+scaled_macd = macd * scale_factor
+scaled_signal = signal * scale_factor
+
+plot(scaled_hist, title = 'Histogram', style = plot.style_columns, 
+     color = scaled_hist >= 0 ? (scaled_hist[1] < scaled_hist ? col_grow_above : col_fall_above) : 
+                               (scaled_hist[1] < scaled_hist ? col_grow_below : col_fall_below),
+     display = dispBase + (showMacdScale ? display.price_scale : display.none))
+
+plot(scaled_macd, title = 'MACD', color = color.new(col_macd, 66), style = plot.style_columns, display = dispBase + (showMacdScale ? display.price_scale : display.none))
+plot(scaled_signal, title = 'Signal', color = color.new(col_signal, 80), style = plot.style_columns, display = dispBase + (showMacdScale ? display.price_scale : display.none))
+
+volPineWma(volX, volY) =>
+    volNorm = 0.0
+    volSum = 0.0
+    for volI = 0 to volY - 1
+        volWeight = (volY - volI) * volY
+        volNorm := volNorm + volWeight
+        volFactor = close[volI] < open[volI] ? -1 : 1
+        volSum := volSum + (volX[volI] * volWeight * volFactor)
+    volSum / volNorm
+
+volVl1 = input.int(defval=5, title="First Moving Average length")
+volVl2 = input.int(defval=8, title="Second Moving Average length")
+volVl3 = volVl1 + volVl2
+volVl4 = volVl2 + volVl3
+volVl5 = volVl3 + volVl4
+
+volV1 = volPineWma(volume, volVl1)
+volV2 = volPineWma(volV1, volVl2)
+volV3 = volPineWma(volV2, volVl3)
+volV4 = volPineWma(volV3, volVl4)
+volVol = volPineWma(volV4, volVl5)
+
+volSigLen = input.int(defval=9, title="Volume MA Signal Length", group="Volume MA Signal")
+volSigType = input.string(defval="EMA", title="Volume MA Signal Type", options=["SMA", "EMA", "WMA", "SMMA (RMA)"], group="Volume MA Signal")
+volShowSignal = input.bool(defval=true, title="Show Volume MA Signal", group="Volume MA Signal")
+volSignal = volSigType == "SMA" ? ta.sma(volVol, volSigLen) : volSigType == "EMA" ? ta.ema(volVol, volSigLen) : volSigType == "WMA" ? ta.wma(volVol, volSigLen) : ta.rma(volVol, volSigLen)
+
+// Scale and shift volume oscillator so it renders in its own band above the RSI pane
+vol_range = ta.highest(volVol, scale_lb) - ta.lowest(volVol, scale_lb)
+vol_range := vol_range == 0 ? 0.0001 : vol_range
+volScaleFactor = rsi_range / vol_range
+volCenter = 100 + volOffsetGap
+
+volTransform(volX) =>
+    volX * volScaleFactor + volCenter
+
+volColor = volVol > 0 ? color.green : color.red
+hline(volCenter, title="Volume Baseline", color=color.silver, linewidth=1)
+plot(volTransform(volVol), color=volColor, linewidth=2, title="Volume", display = dispBase + (showVolScale ? display.price_scale : display.none))
+plot(volShowSignal ? volTransform(volSignal) : na, color=color.orange, linewidth=1, title="Volume MA Signal", display = dispBase + (showVolScale ? display.price_scale : display.none))
+
+volLbR = input.int(title="Pivot Lookback Right", defval=5)
+volLbL = input.int(title="Pivot Lookback Left", defval=5)
+volRangeUpper = input.int(title="Max of Lookback Range", defval=60)
+volRangeLower = input.int(title="Min of Lookback Range", defval=5)
+volPlotBull = input.bool(title="Plot Bullish", defval=true)
+volPlotBear = input.bool(title="Plot Bearish", defval=true)
+
+volBearColor = color.red
+volBullColor = color.green
+volTextColor = color.white
+volNoneColor = color.new(color.white, 100)
+
+volPlFound = na(ta.pivotlow(volVol, volLbL, volLbR)) ? false : true
+volPhFound = na(ta.pivothigh(volVol, volLbL, volLbR)) ? false : true
+
+_volInRange(volCond) =>
+    volBars = ta.barssince(volCond == true)
+    volRangeLower <= volBars and volBars <= volRangeUpper
+
+//------------------------------------------------------------------------------
+// Regular Bullish
+
+// vol: Higher Low
+volHL = volVol[volLbR] > ta.valuewhen(volPlFound, volVol[volLbR], 1) and _volInRange(volPlFound[1])
+
+// Price: Lower Low
+volPriceLL = low[volLbR] < ta.valuewhen(volPlFound, low[volLbR], 1)
+
+volBullCond = volPlotBull and volPriceLL and volHL and volPlFound
+
+plot(
+     volPlFound ? volTransform(volVol[volLbR]) : na,
+     offset=-volLbR,
+     title="Regular Bullish",
+     linewidth=2,
+     color=(volBullCond ? volBullColor : volNoneColor),
+     display=display.pane
+     )
+
+plotshape(
+     volBullCond ? volTransform(volVol[volLbR]) : na,
+     offset=-volLbR,
+     title="Regular Bullish Label",
+     text=" Bull ",
+     style=shape.labelup,
+     location=location.absolute,
+     color=volBullColor,
+     textcolor=volTextColor,
+     display=display.pane
+     )
+
+//------------------------------------------------------------------------------
+// Regular Bearish
+
+// vol: Lower High
+volLH = volVol[volLbR] < ta.valuewhen(volPhFound, volVol[volLbR], 1) and _volInRange(volPhFound[1])
+
+// Price: Higher High
+volPriceHH = high[volLbR] > ta.valuewhen(volPhFound, high[volLbR], 1)
+
+volBearCond = volPlotBear and volPriceHH and volLH and volPhFound
+
+plot(
+     volPhFound ? volTransform(volVol[volLbR]) : na,
+     offset=-volLbR,
+     title="Regular Bearish",
+     linewidth=2,
+     color=(volBearCond ? volBearColor : volNoneColor),
+     display=display.pane
+     )
+
+plotshape(
+     volBearCond ? volTransform(volVol[volLbR]) : na,
+     offset=-volLbR,
+     title="Regular Bearish Label",
+     text=" Bear ",
+     style=shape.labeldown,
+     location=location.absolute,
+     color=volBearColor,
+     textcolor=volTextColor,
+     display=display.pane
+     )
+
+// =============================================================================
+// GROUP 5: OPENING RANGE BREAKOUT — calculation & plotting
+// Uses the inputs / market filter / today filter declared in GROUP 4 above.
+// force_overlay = true pushes every ORB draw onto the main price chart,
+// since this indicator's own pane is overlay = false.
+// Everything below is gated by the "Enable Opening Range Breakout" master
+// toggle (via showThisBar / enableOrb).
+// =============================================================================
+
+// ── ORB calculation ──────────────────────────────────────
+inSession = not na(time(timeframe.period, sessTime, "Asia/Kolkata"))
+orbNewDay = ta.change(time("D")) != 0
+
+var float orHigh = na
+var float orLow  = na
+var bool  orDone = false
+
+if orbNewDay
+    orHigh := na
+    orLow  := na
+    orDone := false
+
+if inSession
+    orHigh := na(orHigh) ? high : math.max(orHigh, high)
+    orLow  := na(orLow)  ? low  : math.min(orLow, low)
+
+if not inSession and not orDone and not na(orHigh)
+    orDone := true
+
+// ── PLOTTING — continuous mode (single plot, connects across days) ──
+plot(showOrHigh and showThisBar and continuousOrb ? orHigh : na, title = "OR High (Continuous)", color = orHighCol, linewidth = orbLineWidth, style = plot.style_line, force_overlay = true, display = enableOrb and continuousOrb ? (display.pane + display.status_line + display.data_window + (showOrbScale ? display.price_scale : display.none)) : display.none)
+plot(showOrLow  and showThisBar and continuousOrb ? orLow  : na, title = "OR Low (Continuous)",  color = orLowCol,  linewidth = orbLineWidth, style = plot.style_line, force_overlay = true, display = enableOrb and continuousOrb ? (display.pane + display.status_line + display.data_window + (showOrbScale ? display.price_scale : display.none)) : display.none)
+
+// ── PLOTTING — segmented mode (separate line per day, no cross-day connector) ──
+var line orHighLn = na
+var line orLowLn  = na
+
+if not continuousOrb
+    if orbNewDay
+        orHighLn := na
+        orLowLn  := na
+
+    if showThisBar and not na(orHigh)
+        if showOrHigh
+            if na(orHighLn)
+                orHighLn := line.new(bar_index, orHigh, bar_index, orHigh, color = orHighCol, width = orbLineWidth, force_overlay = true)
+            else
+                line.set_y1(orHighLn, orHigh)
+                line.set_xy2(orHighLn, bar_index, orHigh)
+        if showOrLow
+            if na(orLowLn)
+                orLowLn := line.new(bar_index, orLow, bar_index, orLow, color = orLowCol, width = orbLineWidth, force_overlay = true)
+            else
+                line.set_y1(orLowLn, orLow)
+                line.set_xy2(orLowLn, bar_index, orLow)
+
+// Price-scale + status-line labels for segmented mode (the line.* drawings above have no
+// native price-scale label, so this plot exists purely to put the value on the
+// axis and status line — silent when continuous mode is active).
+plot(showOrHigh and showThisBar and not continuousOrb ? orHigh : na, title = "OR High (Scale Label)", color = orHighCol, force_overlay = true, display = enableOrb and not continuousOrb ? (display.status_line + (showOrbScale ? display.price_scale : display.none)) : display.none)
+plot(showOrLow  and showThisBar and not continuousOrb ? orLow  : na, title = "OR Low (Scale Label)",  color = orLowCol,  force_overlay = true, display = enableOrb and not continuousOrb ? (display.status_line + (showOrbScale ? display.price_scale : display.none)) : display.none)
+
+// ── BREAKOUTS & ALERTS ───────────────────────────────────
+longBreak  = enableOrb and orDone and ta.crossover(close, orHigh)
+shortBreak = enableOrb and orDone and ta.crossunder(close, orLow)
+
+plotshape(longBreak and showThisBar,  title = "Bullish ORB Break", style = shape.triangleup,   location = location.belowbar, color = color.green, size = size.tiny, force_overlay = true, display = display.all - display.status_line)
+plotshape(shortBreak and showThisBar, title = "Bearish ORB Break", style = shape.triangledown, location = location.abovebar, color = color.red,   size = size.tiny, force_overlay = true, display = display.all - display.status_line)
+
+alertcondition(longBreak,  title = "ORB Bullish Breakout", message = "Nifty/Sensex,etc., broke above Opening Range High")
+alertcondition(shortBreak, title = "ORB Bearish Breakout", message = "Nifty/Sensex,etc., broke below Opening Range Low")
+
+// ── Status label ─────────────────────────────────────────
+var table statusTbl = table.new(position.top_right, 1, 1)
+if enableOrb and showStatusLabel and barstate.islast
+    statusText  = marketOk ? "India Market: Detected - ORB Active" : "Non-Indian Chart - ORB Hidden"
+    statusColor = marketOk ? color.new(color.green, 80) : color.new(color.red, 80)
+    table.cell(statusTbl, 0, 0, statusText, text_color = marketOk ? color.green : color.red, bgcolor = statusColor, text_size = size.small)
