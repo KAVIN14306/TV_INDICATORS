@@ -1,0 +1,63 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Kavin_Palanisamy
+
+//@version=6
+indicator(title = 'UT Bot', overlay = true)
+
+src = close
+
+// ---------------- BUY SIDE SETTINGS ----------------
+buyKeyValue  = input.float(2, title = 'Buy: Key Value (Sensitivity)', step = 0.5, group = 'Buy Settings')
+buyATRPeriod = input.int(300, title = 'Buy: ATR Period', group = 'Buy Settings')
+
+// ---------------- SELL SIDE SETTINGS ----------------
+sellKeyValue  = input.float(2, title = 'Sell: Key Value (Sensitivity)', step = 0.5, group = 'Sell Settings')
+sellATRPeriod = input.int(1, title = 'Sell: ATR Period', group = 'Sell Settings')
+
+// ---------------- BUY SIDE CALCULATION ----------------
+xATRBuy  = ta.atr(buyATRPeriod)
+nLossBuy = buyKeyValue * xATRBuy
+
+xATRTrailingStopBuy = 0.0
+xATRTrailingStopBuy := src > nz(xATRTrailingStopBuy[1], 0) and src[1] > nz(xATRTrailingStopBuy[1], 0) ?
+     math.max(nz(xATRTrailingStopBuy[1]), src - nLossBuy) :
+     src < nz(xATRTrailingStopBuy[1], 0) and src[1] < nz(xATRTrailingStopBuy[1], 0) ?
+     math.min(nz(xATRTrailingStopBuy[1]), src + nLossBuy) :
+     src > nz(xATRTrailingStopBuy[1], 0) ? src - nLossBuy : src + nLossBuy
+
+// ---------------- SELL SIDE CALCULATION ----------------
+xATRSell  = ta.atr(sellATRPeriod)
+nLossSell = sellKeyValue * xATRSell
+
+xATRTrailingStopSell = 0.0
+xATRTrailingStopSell := src > nz(xATRTrailingStopSell[1], 0) and src[1] > nz(xATRTrailingStopSell[1], 0) ?
+     math.max(nz(xATRTrailingStopSell[1]), src - nLossSell) :
+     src < nz(xATRTrailingStopSell[1], 0) and src[1] < nz(xATRTrailingStopSell[1], 0) ?
+     math.min(nz(xATRTrailingStopSell[1]), src + nLossSell) :
+     src > nz(xATRTrailingStopSell[1], 0) ? src - nLossSell : src + nLossSell
+
+// ---------------- POSITION STATE (for bar coloring, based on buy-side stop) ----------------
+pos = 0
+pos := src[1] < nz(xATRTrailingStopBuy[1], 0) and src > nz(xATRTrailingStopBuy[1], 0) ? 1 :
+     src[1] > nz(xATRTrailingStopSell[1], 0) and src < nz(xATRTrailingStopSell[1], 0) ? -1 :
+     nz(pos[1], 0)
+
+xcolor = pos == -1 ? color.red : pos == 1 ? color.green : color.blue
+
+// ---------------- SIGNALS ----------------
+buy  = ta.crossover(src, xATRTrailingStopBuy)
+sell = ta.crossunder(src, xATRTrailingStopSell)
+
+isBullBar = src > xATRTrailingStopBuy
+
+// display=display.pane keeps the labels on the chart but hides them from the status line and price scale
+plotshape(buy, title = 'Buy', text = 'Buy', style = shape.labelup, location = location.belowbar,
+     color = color.new(color.green, 0), textcolor = color.white, size = size.tiny, display = display.pane)
+
+plotshape(sell, title = 'Sell', text = 'Sell', style = shape.labeldown, location = location.abovebar,
+     color = color.new(color.red, 0), textcolor = color.white, size = size.tiny, display = display.pane)
+
+barcolor(isBullBar ? color.green : color.red)
+
+alertcondition(buy,  title = 'UT BOT Buy',  message = 'UT BOT Buy')
+alertcondition(sell, title = 'UT BOT Sell', message = 'UT BOT Sell')
