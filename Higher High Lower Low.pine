@@ -1,0 +1,142 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Kavin_Palanisamy
+
+//@version=6
+indicator("Higher High Lower Low", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ───────────── Inputs ─────────────
+period    = input.int(10, "ZigZag Period", minval=1)
+srcOpt    = input.string("High/Low", "Source", options=["High/Low", "Close/Open"])
+showOpt   = input.string("ZigZag", "Show", options=["ZigZag", "Upper/Lower Bands", "None"])
+showHHLL  = input.bool(true, "Show HH/LL")
+showSR    = input.bool(true, "Show Support/Resistance")
+barChg    = input.bool(true, "Change Bar Color if S/R Broken")
+upIn      = input.color(#00E676, "Zigzag Up Color")
+dnIn      = input.color(#FF5252, "Zigzag Down Color")
+supCol    = input.color(#00E676, "Support Line Color")
+resCol    = input.color(#FF5252, "Resistance Line Color")
+obosChg   = input.bool(true, "Change Color in OB/OS Levels")
+obLevel   = input.int(65, "Overbought Level")
+osLevel   = input.int(35, "Oversold Level")
+
+// ───────────── Source & Oscillator ─────────────
+float srcH = srcOpt == "High/Low" ? high : math.max(open, close)
+float srcL = srcOpt == "High/Low" ? low  : math.min(open, close)
+float osc  = ta.rsi(close, 14)
+
+// ───────────── ZigZag Direction ─────────────
+bool isPH = ta.highestbars(srcH, period) == 0
+bool isPL = ta.lowestbars(srcL, period) == 0
+
+var int dir = 0
+dir := isPH and not isPL ? 1 : isPL and not isPH ? -1 : dir
+
+// ───────────── Leg Tracking ─────────────
+var float ePrice   = na
+var int   eBar     = na
+var float eOsc     = na
+var float lastHigh = na
+var float lastLow  = na
+var line  zz       = na
+var label lbl      = na
+
+// S/R lines:
+//  - Resistance (from a high) extends until the NEXT HIGH (LH / HH) forms
+//  - Support (from a low) extends until the NEXT LOW (LL / HL) forms
+var line curRes  = na
+var line curSup  = na
+var line prevRes = na
+var line prevSup = na
+
+bool zzOn = showOpt == "ZigZag"
+
+if dir != 0 and dir != dir[1]
+    float newP = dir == 1 ? srcH : srcL
+    float sP = newP
+    int   sB = bar_index
+    if dir[1] != 0
+        sP := ePrice
+        sB := eBar
+        if dir[1] == 1
+            lastHigh := ePrice
+        else
+            lastLow := ePrice
+    ePrice := newP
+    eBar   := bar_index
+    eOsc   := osc
+    zz  := line.new(sB, sP, eBar, ePrice, color=zzOn ? (dir == 1 ? upIn : dnIn) : na, width=2)
+    lbl := label.new(eBar, ePrice, "", style=dir == 1 ? label.style_label_down : label.style_label_up, color=na, textcolor=na, size=size.normal)
+    if showSR
+        if dir == 1
+            // new high forms -> cut previous resistance here, start a new one
+            if not na(curRes)
+                line.set_x2(curRes, bar_index)
+            prevRes := curRes
+            curRes  := line.new(eBar, ePrice, bar_index, ePrice, color=resCol, style=line.style_dotted, width=2)
+        else
+            // new low forms -> cut previous support here, start a new one
+            if not na(curSup)
+                line.set_x2(curSup, bar_index)
+            prevSup := curSup
+            curSup  := line.new(eBar, ePrice, bar_index, ePrice, color=supCol, style=line.style_dotted, width=2)
+else if dir == 1 and srcH > ePrice
+    ePrice := srcH
+    eBar   := bar_index
+    eOsc   := osc
+    line.set_xy2(zz, eBar, ePrice)
+    if showSR
+        if not na(curRes)
+            line.set_xy1(curRes, eBar, ePrice)
+            line.set_xy2(curRes, bar_index, ePrice)
+        if not na(prevRes)
+            line.set_x2(prevRes, eBar)
+else if dir == -1 and srcL < ePrice
+    ePrice := srcL
+    eBar   := bar_index
+    eOsc   := osc
+    line.set_xy2(zz, eBar, ePrice)
+    if showSR
+        if not na(curSup)
+            line.set_xy1(curSup, eBar, ePrice)
+            line.set_xy2(curSup, bar_index, ePrice)
+        if not na(prevSup)
+            line.set_x2(prevSup, eBar)
+
+// Keep both live S/R lines extending to the latest bar
+if showSR
+    if not na(curRes)
+        line.set_x2(curRes, bar_index)
+    if not na(curSup)
+        line.set_x2(curSup, bar_index)
+
+// ───────────── Live Label Update ─────────────
+if not na(lbl)
+    bool isHigh = dir == 1
+    string hiTxt = na(lastHigh) or ePrice > lastHigh ? "HH" : "LH"
+    string loTxt = na(lastLow) or ePrice < lastLow ? "LL" : "HL"
+    string txt = isHigh ? hiTxt : loTxt
+    bool boxed = obosChg and (isHigh ? eOsc >= obLevel : eOsc <= osLevel)
+    label.set_xy(lbl, eBar, ePrice)
+    label.set_style(lbl, isHigh ? label.style_label_down : label.style_label_up)
+    if not showHHLL
+        label.set_text(lbl, "")
+        label.set_color(lbl, na)
+        label.set_textcolor(lbl, na)
+    else if boxed
+        label.set_text(lbl, txt)
+        label.set_color(lbl, isHigh ? dnIn : upIn)
+        label.set_textcolor(lbl, color.white)
+    else
+        label.set_text(lbl, txt)
+        label.set_color(lbl, na)
+        label.set_textcolor(lbl, isHigh ? upIn : dnIn)
+
+// ───────────── Upper / Lower Bands ─────────────
+bool bandOn = showOpt == "Upper/Lower Bands"
+plot(bandOn ? ta.highest(srcH, period) : na, "Upper Band", color=upIn, linewidth=2, display=display.pane)
+plot(bandOn ? ta.lowest(srcL, period)  : na, "Lower Band", color=dnIn, linewidth=2, display=display.pane)
+
+// ───────────── Bar Color on S/R Break ─────────────
+bool brokeUp = barChg and not na(lastHigh) and close > lastHigh
+bool brokeDn = barChg and not na(lastLow)  and close < lastLow
+barcolor(brokeUp ? upIn : brokeDn ? dnIn : na)
