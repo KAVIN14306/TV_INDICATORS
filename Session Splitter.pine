@@ -1,0 +1,178 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Kavin_Palanisamy
+
+//@version=6
+indicator("Session Splitter", overlay=true, max_bars_back=5000)
+
+// ============================================================================
+// HELPERS — 12H → 24H conversion (used to build session strings from manual inputs)
+// ============================================================================
+pad2(int n) =>
+    string s = str.tostring(n)
+    str.length(s) < 2 ? "0" + s : s
+
+to24h(int h12, string ampm) =>
+    int h = h12 % 12                 // 12 -> 0
+    ampm == "PM" ? h + 12 : h
+
+sessStr(int h1, int m1, string ap1, int h2, int m2, string ap2) =>
+    pad2(to24h(h1, ap1)) + pad2(m1) + "-" + pad2(to24h(h2, ap2)) + pad2(m2)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+grpIndia = "India Sessions (enter times in 12H format)"
+grpIntl  = "International Sessions (enter times in 12H format)"
+grpStyle = "Style"
+grpLabel = "Labels"
+
+// ---- Opening ----
+showOpening  = input.bool(true, "Show Opening Session", group=grpIndia)
+openLabelTxt = input.string("Opening", "Opening Label Text", group=grpIndia)
+openStartH   = input.int(9,  "Start", minval=1, maxval=12, group=grpIndia, inline="openStart")
+openStartM   = input.int(15, "Min",   minval=0, maxval=59, group=grpIndia, inline="openStart")
+openStartAP  = input.string("AM", "", options=["AM", "PM"], group=grpIndia, inline="openStart")
+openEndH     = input.int(9,  "End",   minval=1, maxval=12, group=grpIndia, inline="openEnd")
+openEndM     = input.int(30, "Min",   minval=0, maxval=59, group=grpIndia, inline="openEnd")
+openEndAP    = input.string("AM", "", options=["AM", "PM"], group=grpIndia, inline="openEnd")
+openColor    = input.color(color.blue, "Opening Start Line Color", group=grpIndia)
+openEndColor = input.color(color.blue, "Opening End Line Color", group=grpIndia)
+openBoxColor = input.color(color.blue, "Opening Box Color", group=grpIndia)
+
+// ---- Mid ----
+showMid     = input.bool(true, "Show Mid Session", group=grpIndia)
+midLabelTxt = input.string("Mid", "Mid Label Text", group=grpIndia)
+midStartH   = input.int(11, "Start", minval=1, maxval=12, group=grpIndia, inline="midStart")
+midStartM   = input.int(30, "Min",   minval=0, maxval=59, group=grpIndia, inline="midStart")
+midStartAP  = input.string("AM", "", options=["AM", "PM"], group=grpIndia, inline="midStart")
+midEndH     = input.int(1,  "End",   minval=1, maxval=12, group=grpIndia, inline="midEnd")
+midEndM     = input.int(30, "Min",   minval=0, maxval=59, group=grpIndia, inline="midEnd")
+midEndAP    = input.string("PM", "", options=["AM", "PM"], group=grpIndia, inline="midEnd")
+midColor    = input.color(color.orange, "Mid Start Line Color", group=grpIndia)
+midEndColor = input.color(color.orange, "Mid End Line Color", group=grpIndia)
+midBoxColor = input.color(color.orange, "Mid Box Color", group=grpIndia)
+
+// ---- Closing ----
+showClose     = input.bool(true, "Show Closing Session", group=grpIndia)
+closeLabelTxt = input.string("Closing", "Closing Label Text", group=grpIndia)
+closeStartH   = input.int(3,  "Start", minval=1, maxval=12, group=grpIndia, inline="closeStart")
+closeStartM   = input.int(0,  "Min",   minval=0, maxval=59, group=grpIndia, inline="closeStart")
+closeStartAP  = input.string("PM", "", options=["AM", "PM"], group=grpIndia, inline="closeStart")
+closeEndH     = input.int(3,  "End",   minval=1, maxval=12, group=grpIndia, inline="closeEnd")
+closeEndM     = input.int(30, "Min",   minval=0, maxval=59, group=grpIndia, inline="closeEnd")
+closeEndAP    = input.string("PM", "", options=["AM", "PM"], group=grpIndia, inline="closeEnd")
+closeColor    = input.color(color.red, "Closing Start Line Color", group=grpIndia)
+closeEndColor = input.color(color.red, "Closing End Line Color", group=grpIndia)
+closeBoxColor = input.color(color.red, "Closing Box Color", group=grpIndia)
+
+// ---- London ----
+showLondon     = input.bool(true, "Show London Session", group=grpIntl)
+londonLabelTxt = input.string("London", "London Label Text", group=grpIntl)
+londonStartH   = input.int(12, "Start", minval=1, maxval=12, group=grpIntl, inline="londonStart")
+londonStartM   = input.int(30, "Min",   minval=0, maxval=59, group=grpIntl, inline="londonStart")
+londonStartAP  = input.string("PM", "", options=["AM", "PM"], group=grpIntl, inline="londonStart")
+londonEndH     = input.int(9,  "End",   minval=1, maxval=12, group=grpIntl, inline="londonEnd")
+londonEndM     = input.int(0,  "Min",   minval=0, maxval=59, group=grpIntl, inline="londonEnd")
+londonEndAP    = input.string("PM", "", options=["AM", "PM"], group=grpIntl, inline="londonEnd")
+londonColor    = input.color(color.purple, "London Start Line Color", group=grpIntl)
+londonEndColor = input.color(color.purple, "London End Line Color", group=grpIntl)
+londonBoxColor = input.color(color.purple, "London Box Color", group=grpIntl)
+
+// ---- New York ----
+showNY     = input.bool(true, "Show New York Session", group=grpIntl)
+nyLabelTxt = input.string("New York", "New York Label Text", group=grpIntl)
+nyStartH   = input.int(6,  "Start", minval=1, maxval=12, group=grpIntl, inline="nyStart")
+nyStartM   = input.int(0,  "Min",   minval=0, maxval=59, group=grpIntl, inline="nyStart")
+nyStartAP  = input.string("PM", "", options=["AM", "PM"], group=grpIntl, inline="nyStart")
+nyEndH     = input.int(12, "End",   minval=1, maxval=12, group=grpIntl, inline="nyEnd")
+nyEndM     = input.int(30, "Min",   minval=0, maxval=59, group=grpIntl, inline="nyEnd")
+nyEndAP    = input.string("AM", "", options=["AM", "PM"], group=grpIntl, inline="nyEnd")
+nyColor    = input.color(color.green, "New York Start Line Color", group=grpIntl)
+nyEndColor = input.color(color.green, "New York End Line Color", group=grpIntl)
+nyBoxColor = input.color(color.green, "New York Box Color", group=grpIntl)
+
+// ---- Build 24H session strings from the manual 12H inputs above ----
+openSession   = sessStr(openStartH,   openStartM,   openStartAP,   openEndH,   openEndM,   openEndAP)
+midSession    = sessStr(midStartH,    midStartM,    midStartAP,    midEndH,    midEndM,    midEndAP)
+closeSession  = sessStr(closeStartH,  closeStartM,  closeStartAP,  closeEndH,  closeEndM,  closeEndAP)
+londonSession = sessStr(londonStartH, londonStartM, londonStartAP, londonEndH, londonEndM, londonEndAP)
+nySession     = sessStr(nyStartH,     nyStartM,     nyStartAP,     nyEndH,     nyEndM,     nyEndAP)
+
+sessTZ = input.string("Asia/Kolkata", "Session Timezone", group=grpStyle, tooltip="All session windows above are read in this timezone (default IST).")
+
+showVLineStart = input.bool(true, "Show Session-Start Vertical Lines", group=grpStyle)
+showVLineEnd   = input.bool(true, "Show Session-End Vertical Lines", group=grpStyle)
+lineWidthIn    = input.int(1, "Line Width", minval=1, maxval=4, group=grpStyle)
+lineStyleIn    = input.string("Solid", "Line Style", options=["Solid", "Dashed", "Dotted"], group=grpStyle)
+
+showBoxes  = input.bool(true, "Show Session Range Box (On/Off)", group=grpStyle)
+boxTransp  = input.int(88, "Box Fill Transparency", minval=0, maxval=100, group=grpStyle)
+
+// ---- Labels — independent from session/line/box colors ----
+showLabels     = input.bool(true, "Show Session Name Labels", group=grpLabel)
+showLabelBox   = input.bool(true, "Show Rectangle Box Behind Label (On/Off)", group=grpLabel, tooltip="Turn off to show only the label text with no background box.")
+labelBgColor   = input.color(color.gray, "Label Background Color", group=grpLabel)
+labelTextColor = input.color(color.white, "Label Text Color", group=grpLabel)
+
+lineStyleConst = lineStyleIn == "Solid" ? line.style_solid : lineStyleIn == "Dotted" ? line.style_dotted : line.style_dashed
+
+// ============================================================================
+// STATE  (slot: 0=Opening 1=Mid 2=Closing 3=London 4=New York)
+// ============================================================================
+var sBoxes = array.new_box(5, na)
+var sHigh  = array.new_float(5, na)
+var sLow   = array.new_float(5, na)
+var vLines = array.new_line(0)
+
+// ============================================================================
+// CORE LOGIC
+// ============================================================================
+processSession(int idx, string sessStrIn, string tz, bool show, string lbl, color startCol, color endCol, color boxCol) =>
+    if show
+        t0 = time(timeframe.period, sessStrIn, tz)
+        t1 = time(timeframe.period, sessStrIn, tz)[1]
+        inSess    = not na(t0)
+        wasSess   = not na(t1)
+        sessStart = inSess and not wasSess
+        sessEnd   = not inSess and wasSess
+
+        if sessStart
+            array.set(sHigh, idx, high)
+            array.set(sLow, idx, low)
+
+            if showVLineStart
+                ln = line.new(bar_index, low, bar_index, high, extend=extend.both, color=startCol, width=lineWidthIn, style=lineStyleConst)
+                array.push(vLines, ln)
+
+            if showBoxes
+                bx = box.new(bar_index, high, bar_index, low, border_color=boxCol, bgcolor=color.new(boxCol, boxTransp), border_width=1)
+                array.set(sBoxes, idx, bx)
+
+            if showLabels
+                labelStyle = showLabelBox ? label.style_label_down : label.style_text_outline
+                label.new(bar_index, high, lbl, style=labelStyle, color=showLabelBox ? labelBgColor : color.new(color.black, 100), textcolor=labelTextColor, size=size.small)
+
+        if inSess
+            array.set(sHigh, idx, math.max(array.get(sHigh, idx), high))
+            array.set(sLow, idx, math.min(array.get(sLow, idx), low))
+
+            if showBoxes
+                bx = array.get(sBoxes, idx)
+                if not na(bx)
+                    box.set_top(bx, array.get(sHigh, idx))
+                    box.set_bottom(bx, array.get(sLow, idx))
+                    box.set_right(bx, bar_index)
+
+        if sessEnd and showVLineEnd
+            endBar = bar_index - 1
+            endLn = line.new(endBar, low[1], endBar, high[1], extend=extend.both, color=endCol, width=lineWidthIn, style=lineStyleConst)
+            array.push(vLines, endLn)
+
+// ============================================================================
+// RUN — one call per session
+// ============================================================================
+processSession(0, openSession,   sessTZ, showOpening, openLabelTxt,   openColor,   openEndColor,   openBoxColor)
+processSession(1, midSession,    sessTZ, showMid,     midLabelTxt,    midColor,    midEndColor,    midBoxColor)
+processSession(2, closeSession,  sessTZ, showClose,   closeLabelTxt,  closeColor,  closeEndColor,  closeBoxColor)
+processSession(3, londonSession, sessTZ, showLondon,  londonLabelTxt, londonColor, londonEndColor, londonBoxColor)
+processSession(4, nySession,     sessTZ, showNY,      nyLabelTxt,     nyColor,     nyEndColor,     nyBoxColor)
