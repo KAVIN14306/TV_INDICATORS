@@ -1,0 +1,108 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Kavin_Palanisamy
+
+//@version=6
+indicator("Multi Indicators(EMA,BB,VWAP,ST)", shorttitle="Multi Combo", overlay=true)
+
+// Inputs
+ema1Len = input.int(9, "EMA 1")
+ema2Len = input.int(20, "EMA 2")
+ema3Len = input.int(50, "EMA 3")
+ema4Len = input.int(200, "EMA 4")
+
+displayBB = input.bool(false, "Display Bollinger Bands?")
+displayVW = input.bool(true, "Display VWAP?")
+
+BBlength = input.int(20, minval=1, title="Bollinger Period Length")
+BBmult   = input.float(2.0, minval=0.001, maxval=50, title="BB Std Dev")
+
+window1 = input.int(8, title="SR Lookback Window 1")
+window2 = input.int(21, title="SR Lookback Window 2")
+
+src = input.source(close, "Source")
+
+// EMAs    
+ema1 = ta.ema(src, ema1Len)    
+ema2 = ta.ema(src, ema2Len)    
+ema3 = ta.ema(src, ema3Len)    
+ema4 = ta.ema(src, ema4Len)    
+    
+// Plots    
+plot(ema1, "EMA 9", color=color.lime, linewidth=2)    
+plot(ema2, "EMA 20", color=color.red, linewidth=2)    
+plot(ema3, "EMA 50", color=color.blue, linewidth=2)    
+plot(ema4, "EMA 200", color=color.purple, linewidth=2)    
+        
+/// Cross detect (Ema 1 x Ema 2)
+cross_01_up   = ta.crossover(ema1,ema2)
+cross_01_down = ta.crossunder(ema1, ema2)
+
+plot(cross_01_up or cross_01_down ? ema1 : na, style = plot.style_cross, title = "cross 01", linewidth = 3, color = ema1 > ema2 ? color.green : color.red, display = display.pane)
+
+// Cross2 detect (Ema 2 x Ema 3)
+cross_02_up   = ta.crossover(ema2, ema3)
+cross_02_down = ta.crossunder(ema2, ema3)
+
+plot(cross_02_up or cross_02_down ? ema2 : na, style = plot.style_cross, title = "cross 02", linewidth = 3, color = ema2 > ema3 ? color.green : color.red, display = display.pane)
+
+// Cross3 detect (Ema 3 x Ema 4)
+cross_03_up   = ta.crossover(ema3, ema4)
+cross_03_down = ta.crossunder(ema3, ema4)
+
+plot(cross_03_up or cross_03_down ? ema3 : na, style = plot.style_cross, title = "cross 03", linewidth = 3, color = ema3 > ema4 ? color.green : color.red, display = display.pane)
+
+// Alerts
+alertcondition(cross_01_up,   title = 'cross_01_up',   message = '{{ticker}} ({{interval}}): Ema 1 crossed ABOVE Ema 2')
+alertcondition(cross_01_down, title = 'cross_01_down', message = '{{ticker}} ({{interval}}): Ema 1 crossed BELOW Ema 2')
+
+alertcondition(cross_02_up,   title = 'cross_02_up',   message = '{{ticker}} ({{interval}}): Ema 2 crossed ABOVE Ema 3')
+alertcondition(cross_02_down, title = 'cross_02_down', message = '{{ticker}} ({{interval}}): Ema 2 crossed BELOW Ema 3')
+
+alertcondition(cross_03_up,   title = 'cross_03_up',   message = '{{ticker}} ({{interval}}): Ema 3 crossed ABOVE Ema 4')
+alertcondition(cross_03_down, title = 'cross_03_down', message = '{{ticker}} ({{interval}}): Ema 3 crossed BELOW Ema 4')
+        
+vwapValue = displayVW ? ta.vwap(hlc3) : na
+plot(vwapValue, "VWAP", color=color.aqua, linewidth=2)
+
+// Bollinger Bands
+BBbasis = displayBB ? ta.sma(src, BBlength) : na
+BBdev   = displayBB ? BBmult * ta.stdev(src, BBlength) : na
+
+BBupper = BBbasis + BBdev
+BBlower = BBbasis - BBdev
+
+plot(BBbasis, "BB Basis", color=color.orange)
+
+p1 = plot(BBupper, "BB Upper", color=color.teal)
+p2 = plot(BBlower, "BB Lower", color=color.teal)
+
+fill(p1, p2, color=color.new(color.teal, 90))
+
+// ── Inputs ──────────────────────────────────────────────
+//──────────────────────────────────────────────────────────────────────────────
+//SuperTrend (Factor 2 and Factor 3)
+// ──────────────────────────────────────────────────────────────────────────────
+
+string st_grp1 = 'SuperTrend #1 (Factor 2)'
+string st_grp2 = 'SuperTrend #2 (Factor 3)'
+
+st1_show = input.bool(true, 'Show SuperTrend #1', group = st_grp1)
+st1_factor = input.float(2.0, 'Factor', step = 0.1, group = st_grp1)
+st1_atrLen = input.int(10, 'ATR Length', minval = 1, group = st_grp1)
+st1_upCol = input.color(color.green, 'Uptrend Color', group = st_grp1)
+st1_dnCol = input.color(color.red, 'Downtrend Color', group = st_grp1)
+
+st2_show = input.bool(true, 'Show SuperTrend #2', group = st_grp2)
+st2_factor = input.float(3.0, 'Factor', step = 0.1, group = st_grp2)
+st2_atrLen = input.int(10, 'ATR Length', minval = 1, group = st_grp2)
+st2_upCol = input.color(color.lime, 'Uptrend Color', group = st_grp2)
+st2_dnCol = input.color(color.maroon, 'Downtrend Color', group = st_grp2)
+
+[st1_val, st1_dir] = ta.supertrend(st1_factor, st1_atrLen)
+[st2_val, st2_dir] = ta.supertrend(st2_factor, st2_atrLen)
+
+st1_color = st1_dir < 0 ? st1_upCol : st1_dnCol
+st2_color = st2_dir < 0 ? st2_upCol : st2_dnCol
+
+st1_plot = plot(st1_show ? st1_val : na, title = 'SuperTrend #1 (Factor 2)', color = st1_color, linewidth = 2, style = plot.style_line)
+st2_plot = plot(st2_show ? st2_val : na, title = 'SuperTrend #2 (Factor 3)', color = st2_color, linewidth = 2, style = plot.style_line)
