@@ -1,0 +1,34 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Kavin_Palanisamy
+
+//@version=6
+indicator("SuperTrend Dual", overlay=true, max_bars_back=500)
+
+// ── Inputs ──────────────────────────────────────────────
+//──────────────────────────────────────────────────────────────────────────────
+// SuperTrend (Factor 2 and Factor 3)
+// ──────────────────────────────────────────────────────────────────────────────
+
+string st_grp1 = 'SuperTrend #1 (Factor 2)'
+string st_grp2 = 'SuperTrend #2 (Factor 3)'
+
+st1_show = input.bool(true, 'Show SuperTrend #1', group = st_grp1)
+st1_factor = input.float(2.0, 'Factor', step = 0.1, group = st_grp1)
+st1_atrLen = input.int(10, 'ATR Length', minval = 1, group = st_grp1)
+st1_upCol = input.color(color.green, 'Uptrend Color', group = st_grp1)
+st1_dnCol = input.color(color.red, 'Downtrend Color', group = st_grp1)
+
+st2_show = input.bool(true, 'Show SuperTrend #2', group = st_grp2)
+st2_factor = input.float(3.0, 'Factor', step = 0.1, group = st_grp2)
+st2_atrLen = input.int(10, 'ATR Length', minval = 1, group = st_grp2)
+st2_upCol = input.color(color.lime, 'Uptrend Color', group = st_grp2)
+st2_dnCol = input.color(color.maroon, 'Downtrend Color', group = st_grp2)
+
+[st1_val, st1_dir] = ta.supertrend(st1_factor, st1_atrLen)
+[st2_val, st2_dir] = ta.supertrend(st2_factor, st2_atrLen)
+
+st1_color = st1_dir < 0 ? st1_upCol : st1_dnCol
+st2_color = st2_dir < 0 ? st2_upCol : st2_dnCol
+
+st1_plot = plot(st1_show ? st1_val : na, title = 'SuperTrend #1 (Factor 2)', color = st1_color, linewidth = 2, style = plot.style_line)
+st2_plot = plot(st2_show ? st2_val : na, title = 'SuperTrend #2 (Factor 3)', color = st2_color, linewidth = 2, style = plot.style_line)
