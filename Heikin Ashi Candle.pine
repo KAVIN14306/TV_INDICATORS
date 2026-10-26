@@ -1,0 +1,109 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Kavin_Palanisamy
+
+//@version=6
+indicator("Heikin Ashi Candle", overlay=true)
+
+//====================================================
+// HEIKIN ASHI — BODY / WICK / BORDER COLORS (separate)
+//====================================================
+bodyBullColor = input.color(color.new(#089981, 0), "Bull Color", inline = "body", group = "Body")
+bodyBearColor = input.color(color.new(#f23645, 0), "Bear Color", inline = "body", group = "Body")
+
+wickBullColor = input.color(color.new(#089981, 0), "Bull Color", inline = "wick", group = "Wick")
+wickBearColor = input.color(color.new(#f23645, 0), "Bear Color", inline = "wick", group = "Wick")
+
+borderBullColor = input.color(color.new(#089981, 0), "Bull Color", inline = "border", group = "Border")
+borderBearColor = input.color(color.new(#f23645, 0), "Bear Color", inline = "border", group = "Border")
+
+//====================================================
+// HEIKIN ASHI CLOSE LINE — separate line/label toggles
+//====================================================
+showHALine  = input.bool(true, "Show Line", group = "Heikin Ashi Close")
+showHALabel = input.bool(true, "Show Price Scale Label", group = "Heikin Ashi Close")
+
+//====================================================
+// CURRENT MARKET PRICE — separate line/label toggles
+//====================================================
+showMktLine  = input.bool(true, "Show Line", group = "Current Market Price")
+showMktLabel = input.bool(true, "Show Price Scale Label", group = "Current Market Price")
+mktBullColor = input.color(color.new(#089981, 0), "Bull Color", inline = "mkt", group = "Current Market Price")
+mktBearColor = input.color(color.new(#f23645, 0), "Bear Color", inline = "mkt", group = "Current Market Price")
+
+//====================================================
+// TRADINGVIEW NATIVE HEIKIN ASHI
+//====================================================
+haTicker = ticker.heikinashi(syminfo.tickerid)
+[haOpen, haHigh, haLow, haClose] = request.security(haTicker, timeframe.period, [open, high, low, close])
+
+isBull = haClose >= haOpen
+bodyColor   = isBull ? bodyBullColor   : bodyBearColor
+wickColor   = isBull ? wickBullColor   : wickBearColor
+borderColor = isBull ? borderBullColor : borderBearColor
+
+//====================================================
+// REAL (NON-HEIKIN-ASHI) MARKET PRICE
+// Plain `close`/`open` get rewritten by Pine to reflect whatever
+// chart style is active (Heikin Ashi, Renko, etc.). If your chart
+// display type is set to Heikin Ashi, `close` silently equals the HA
+// close instead of the real traded price — which is why the market
+// price line/label was overlapping the HA close line/label.
+// ticker.new() forces a standard, unmodified OHLC feed regardless of
+// the chart's display style.
+//
+// FIX: use session.regular (not session.extended) so this matches
+// the same live "Last" price TradingView shows in the watchlist —
+// extended-session data can be sourced/timed differently and was
+// causing the mismatch you saw (7,007.72 vs 7,017.91).
+//====================================================
+realTicker = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+[rOpen, rClose] = request.security(realTicker, timeframe.period, [open, close])
+
+// Market price color follows the real candle's direction, using the
+// Bull/Bear colors set above.
+mktIsBull = rClose >= rOpen
+mktColor  = mktIsBull ? mktBullColor : mktBearColor
+
+//====================================================
+// PLOT HEIKIN ASHI CANDLES (pane only — no scale label here,
+// so it doesn't duplicate the dedicated label below)
+//====================================================
+plotcandle(haOpen, haHigh, haLow, haClose,
+     color       = bodyColor,
+     wickcolor   = wickColor,
+     bordercolor = borderColor,
+     display     = display.pane + display.status_line)
+
+//====================================================
+// HEIKIN ASHI CLOSE — INFINITE DOTTED LINE
+//====================================================
+var line haCloseLine = na
+
+if not na(haClose)
+    if na(haCloseLine)
+        haCloseLine := line.new(x1 = bar_index, y1 = haClose, x2 = bar_index + 1, y2 = haClose, xloc = xloc.bar_index, extend = extend.both, style = line.style_dotted, width = 1)
+    line.set_y1(haCloseLine, haClose)
+    line.set_y2(haCloseLine, haClose)
+    line.set_style(haCloseLine, line.style_dotted)
+    line.set_width(haCloseLine, 1)
+    line.set_color(haCloseLine, showHALine ? bodyColor : color.new(bodyColor, 100))
+
+// Single price-scale label for HA close (only source of this label)
+plot(haClose, title = "HA Close Price", color = bodyColor, display = showHALabel ? display.price_scale : display.none, editable = false)
+
+//====================================================
+// CURRENT MARKET PRICE — INFINITE DOTTED LINE (real price, not HA)
+//====================================================
+var line mktLine = na
+
+if not na(rClose)
+    if na(mktLine)
+        mktLine := line.new(x1 = bar_index, y1 = rClose, x2 = bar_index + 1, y2 = rClose, xloc = xloc.bar_index, extend = extend.both, style = line.style_dotted, width = 1)
+    line.set_y1(mktLine, rClose)
+    line.set_y2(mktLine, rClose)
+    line.set_style(mktLine, line.style_dotted)
+    line.set_width(mktLine, 1)
+    line.set_color(mktLine, showMktLine ? mktColor : color.new(mktColor, 100))
+
+// Single price-scale label for current market price (real price, not HA)
+plot(rClose, title = "Market Price", color = mktColor, display = showMktLabel ? display.price_scale : display.none, editable = false)
