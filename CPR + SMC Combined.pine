@@ -1,0 +1,3014 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Kavin_Palanisamy
+
+//@version=6
+indicator('CPR + SMC Combined', shorttitle = 'CPR + SMC', overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
+
+//══════════════════════════════════════════════════════════════════════════════════════════════
+// MASTER CONTROL  (one dropdown: only the selected indicator is displayed)
+//══════════════════════════════════════════════════════════════════════════════════════════════
+MODE_CPR = 'CPR + Multi'
+MODE_SMC = 'SMC Concepts'
+MODE_OFF = 'Off (hide everything)'
+
+active_mode = input.string(MODE_CPR, 'Active Indicator', options = [MODE_CPR, MODE_SMC, MODE_OFF], tooltip = 'CPR + Multi = CPR, pivots, MAs, SuperTrend, VWAP, UT Bot and table are shown, SMC is hidden.\nSMC Concepts = SMC is shown, CPR + Multi is hidden.\nOff = nothing is displayed and no alerts fire.')
+master_alert_on = input.bool(true, 'Enable CPR + Multi Alerts (Alert Switch)', tooltip = 'OFF = every CPR + Multi alert is silenced while the chart display stays visible. SMC alerts follow the Active Indicator selection.')
+
+master_on = active_mode == MODE_CPR     // CPR + Multi master switch
+smc_on = active_mode == MODE_SMC        // SMC Concepts master switch
+alerts_on = master_on and master_alert_on
+
+// ——— OVERLAY MASTER SWITCHES ———
+string ov_grp = 'Simple CPR + Multi Indicator Master Switches'
+
+ov_master = input.bool(true, 'MASTER: All Overlays (MA, SuperTrend, BB, VWAP, UT Bot)', group = ov_grp, tooltip = 'OFF = hides every overlay below at once. Individual settings and colors are kept.')
+cpr_pivot_master = input.bool(true, 'CPR + Pivots + Prev High/Low', group = ov_grp, tooltip = 'ON = CPR (Pivot/TC/BC), S1-S5 / R1-R5 pivot lines, the Camarilla R3/S3 lines, their labels, prices, fills and the Previous High/Low lines are drawn according to the settings below.\nOFF = all of them are hidden at once while every setting and color below is kept.\nMAs, SuperTrend, VWAP, UT Bot and the table are not affected.')
+ma_master = input.bool(true, 'Moving Averages (EMA/SMA...) + Crosses', group = ov_grp)
+st_master = input.bool(true, 'SuperTrend #1 + #2', group = ov_grp)
+bb_master = input.bool(true, 'Bollinger Bands', group = ov_grp)
+vw_master = input.bool(true, 'Session VWAP', group = ov_grp)
+dv_master = input.bool(true, 'Day-Open Anchored VWAP', group = ov_grp)
+ut_master = input.bool(true, 'UT Bot', group = ov_grp)
+
+ma_on = master_on and ov_master and ma_master
+st_on = master_on and ov_master and st_master
+bb_on = master_on and ov_master and bb_master
+vw_on = master_on and ov_master and vw_master
+dv_on = master_on and ov_master and dv_master
+ut_on = master_on and ov_master and ut_master
+
+// ——— SMC MASTER SWITCHES (only apply while Active Indicator = SMC Concepts) ———
+string smc_grp = 'SMC Master Switches'
+
+smc_ov_master = input.bool(true, 'MASTER: All SMC Features', group = smc_grp, tooltip = 'OFF = hides every SMC feature below at once (and silences SMC alerts). Individual settings and colors are kept.')
+smc_alert_master = input.bool(true, 'Enable SMC Alerts (Alert Switch)', group = smc_grp, tooltip = 'OFF = every SMC alert is silenced while the chart display stays visible.')
+smc_struct_master = input.bool(true, 'Structure (Internal + Swing BOS/CHoCH, Swing Points, Color Candles)', group = smc_grp)
+smc_hl_master = input.bool(true, 'Strong/Weak High/Low', group = smc_grp)
+smc_ob_master = input.bool(true, 'Order Blocks (Internal + Swing)', group = smc_grp)
+smc_eq_master = input.bool(true, 'Equal High/Low (EQH/EQL)', group = smc_grp)
+smc_fvg_master = input.bool(true, 'Fair Value Gaps', group = smc_grp)
+smc_htf_fvg_master = input.bool(true, 'HTF Fair Value Gaps', group = smc_grp)
+smc_htf_ob_master = input.bool(true, 'HTF Order Blocks', group = smc_grp)
+smc_lvl_master = input.bool(true, 'Previous Day/Week/Month High/Low', group = smc_grp)
+smc_zone_master = input.bool(true, 'Premium/Discount Zones', group = smc_grp)
+smc_bb_master = input.bool(true, 'Breaker Blocks', group = smc_grp)
+
+smc_f_on = smc_on and smc_ov_master   // SMC master (dropdown + all-SMC switch)
+
+//══════════════════════════════════════════════════════════════════════════════════════════════
+// PART 1 — CPR + MULTI INDICATORS
+//══════════════════════════════════════════════════════════════════════════════════════════════
+TRADITIONAL = 'Traditional'
+FIBONACCI = 'Fibonacci'
+CLASSIC = 'Classic'
+CAMARILLA = 'Camarilla'
+
+kind = input.string(title = 'Type', defval = TRADITIONAL, options = [TRADITIONAL, FIBONACCI, CLASSIC, CAMARILLA])
+
+// ——— CPR Indicator by Kavin_Palanisamy - Pivot Mode (Auto/Manual) ———
+pivot_mode = input.string('Auto', 'CPR Indicator by Kavin_Palanisamy - Select Pivot Mode', options = ['Auto', 'Manual'])
+
+manual_daily = input.bool(false, 'Show Daily CPR (Manual)')
+manual_weekly = input.bool(false, 'Show Weekly CPR (Manual)')
+manual_monthly = input.bool(false, 'Show Monthly CPR (Manual)')
+manual_next_day = input.bool(false, 'Show Next Day CPR (Manual)')
+manual_next_week = input.bool(false, 'Show Next Week CPR (Manual)')
+manual_next_month = input.bool(false, 'Show Next Month CPR (Manual)')
+
+look_back = input.int(title = 'Number of CPR Back', defval = 3, minval = 1, maxval = 5000)
+position_labels = input.string('Right', 'Labels Position', options = ['Left', 'Right'])
+line_width = input.int(title = 'Line Width', defval = 3, minval = 1, maxval = 100)
+hist_sr_show = input.bool(false, 'Show Historical SR Pivots')
+
+is_daily_based = input.bool(title = 'Use Daily-based Values', defval = true, tooltip = 'When this option is unchecked, CPR will use intraday data while calculating on intraday charts. If Extended Hours are displayed on the chart, they will be taken into account during the CPR level calculation. If intraday OHLC values are different from daily-based values (normal for stocks), the CPR levels will also differ.')
+
+// Variables
+var arr_time = array.new_int()
+var p = array.new_float()
+var tp = array.new_float()
+var bp = array.new_float()
+
+var SR_COLOR = #FB8C00
+var DEV_SR_COLOR = #E2BEE7
+
+var pdh_arr = array.new_float()
+var pdl_arr = array.new_float()
+
+// ——— CPR Customisation ———
+cpr_show = input.bool(true, '', inline = 'CPR', group = 'CPR Customisation')
+cpr_color = input.color(color.blue, 'Show CPR', inline = 'CPR', group = 'CPR Customisation')
+cpr_show_lines = input.bool(true, 'Show CPR Lines', group = 'CPR Customisation')
+cpr_show_fill = input.bool(false, 'Show CPR Fill', group = 'CPR Customisation')
+cpr_show_prices = input.bool(false, 'Show CPR Price', group = 'CPR Customisation')
+cpr_show_labels = input.bool(false, 'Show CPR Label', group = 'CPR Customisation')
+cpr_line_style = input.string('Dotted', 'CPR Line Style', options = ['Solid', 'Dashed', 'Dotted'], group = 'CPR Customisation')
+
+// ——— Camarilla R3/S3 alongside CPR ———
+show_cam_r3s3 = input.string('No', 'Show Camarilla Pivot R3/S3 Levels', options = ['Yes', 'No'], group = 'CPR Customisation', tooltip = 'Yes = draws Camarilla R3 and S3 alongside the CPR on every period shown (Daily / Weekly / Monthly / Next Day / Next Week / Next Month). R3 and S3 each have their own color. Works independently of the selected pivot Type. Requires CPR to be ON.')
+cam_r3_color = input.color(color.orange, 'Camarilla R3 Color', group = 'CPR Customisation')
+cam_s3_color = input.color(color.orange, 'Camarilla S3 Color', group = 'CPR Customisation')
+
+// ——— Pivot Customisation ———
+sr_show = input.bool(true, 'Show SR Levels', inline = 'Show SR Pivots', group = 'Pivot Customisation')
+sr_show_labels = input.bool(true, 'Show SR Label', group = 'Pivot Customisation')
+sr_show_prices = input.bool(true, 'Show SR Price', group = 'Pivot Customisation')
+sr_line_style = input.string('Solid', 'SR Line Style', options = ['Solid', 'Dashed', 'Dotted'], group = 'Pivot Customisation')
+
+// ——— Pivots ———
+var r1 = array.new_float()
+var s1 = array.new_float()
+
+s1_show = input.bool(true, '', inline = 'S1/R1', group = 'Pivot Display')
+s1_color = input.color(SR_COLOR, 'S1', inline = 'S1/R1', group = 'Pivot Display')
+r1_show = input.bool(true, '', inline = 'S1/R1', group = 'Pivot Display')
+r1_color = input.color(SR_COLOR, 'R1', inline = 'S1/R1', group = 'Pivot Display')
+
+var r2 = array.new_float()
+var s2 = array.new_float()
+
+s2_show = input.bool(false, '', inline = 'S2/R2', group = 'Pivot Display')
+s2_color = input.color(SR_COLOR, 'S2', inline = 'S2/R2', group = 'Pivot Display')
+r2_show = input.bool(false, '', inline = 'S2/R2', group = 'Pivot Display')
+r2_color = input.color(SR_COLOR, 'R2', inline = 'S2/R2', group = 'Pivot Display')
+
+var r3 = array.new_float()
+var s3 = array.new_float()
+
+s3_show = input.bool(false, '', inline = 'S3/R3', group = 'Pivot Display')
+s3_color = input.color(SR_COLOR, 'S3', inline = 'S3/R3', group = 'Pivot Display')
+r3_show = input.bool(false, '', inline = 'S3/R3', group = 'Pivot Display')
+r3_color = input.color(SR_COLOR, 'R3', inline = 'S3/R3', group = 'Pivot Display')
+
+var r4 = array.new_float()
+var s4 = array.new_float()
+
+s4_show = input.bool(false, '', inline = 'S4/R4', group = 'Pivot Display')
+s4_color = input.color(SR_COLOR, 'S4', inline = 'S4/R4', group = 'Pivot Display')
+r4_show = input.bool(false, '', inline = 'S4/R4', group = 'Pivot Display')
+r4_color = input.color(SR_COLOR, 'R4', inline = 'S4/R4', group = 'Pivot Display')
+
+var r5 = array.new_float()
+var s5 = array.new_float()
+
+s5_show = input.bool(false, '', inline = 'S5/R5', group = 'Pivot Display')
+s5_color = input.color(SR_COLOR, 'S5', inline = 'S5/R5', group = 'Pivot Display')
+r5_show = input.bool(false, '', inline = 'S5/R5', group = 'Pivot Display')
+r5_color = input.color(SR_COLOR, 'R5', inline = 'S5/R5', group = 'Pivot Display')
+
+// — Group for CPR↔SR fill —
+fill_cpr_r1 = input.bool(false, 'Fill CPR → R1', group = 'Pivot Customisation')
+fill_cpr_r1_col = input.color(color.new(color.orange, 75), 'CPR–R1 Fill Color', group = 'Pivot Customisation')
+fill_cpr_s1 = input.bool(false, 'Fill CPR → S1', group = 'Pivot Customisation')
+fill_cpr_s1_col = input.color(color.new(color.orange, 75), 'CPR–S1 Fill Color', group = 'Pivot Customisation')
+
+check_holidays = input.bool(true, 'Check NSE/BSE holidays', tooltip = 'Enable this when the Dev CPR lines are not visible(i.e. there is a trading holiday in upcoming session).')
+
+// --- Session Display Toggles ---
+show_day = input.bool(false, title = 'Show Previous High/Low', group = 'Session High Low')
+session_hl_line_style = input.string('Solid', title = 'Line Style', options = ['Solid', 'Dotted', 'Dashed'], group = 'Session High Low')
+session_high_color = input.color(defval = color.aqua, title = 'High Line Color', group = 'Session High Low')
+session_low_color = input.color(defval = color.aqua, title = 'Low Line Color', group = 'Session High Low')
+
+// --- PDH/PDL label/price toggles ---
+pd_show_labels = input.bool(true, 'Show PH/PL Labels', group = 'Session High Low')
+pd_show_prices = input.bool(true, 'Show PH/PL Prices', group = 'Session High Low')
+
+// ——— Series state ———
+pivotX_open = float(na)
+pivotX_open := nz(pivotX_open[1], open)
+
+pivotX_high = float(na)
+pivotX_high := nz(pivotX_high[1], high)
+
+pivotX_low = float(na)
+pivotX_low := nz(pivotX_low[1], low)
+
+pivotX_prev_open = float(na)
+pivotX_prev_open := nz(pivotX_prev_open[1])
+
+pivotX_prev_high = float(na)
+pivotX_prev_high := nz(pivotX_prev_high[1])
+
+pivotX_prev_low = float(na)
+pivotX_prev_low := nz(pivotX_prev_low[1])
+
+pivotX_prev_close = float(na)
+pivotX_prev_close := nz(pivotX_prev_close[1])
+
+// ——— Helper to pick the "primary" resolution used only by the Activated Alerts engine below ———
+get_pivot_resolution() =>
+    resolution = 'D'
+
+    if pivot_mode == 'Manual'
+        resolution := manual_daily ? 'D' : manual_weekly ? 'W' : manual_monthly ? 'M' : 'D'
+    else
+        if timeframe.isintraday
+            resolution := timeframe.multiplier <= 15 ? 'D' : timeframe.multiplier <= 75 ? 'W' : 'M'
+        else if timeframe.isdaily
+            resolution := 'M'
+        else if timeframe.isweekly
+            resolution := '6M'
+        else
+            resolution := '12M'
+
+    resolution
+
+traditional() =>
+    pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
+
+    _r1 = pivotX_Median * 2 - pivotX_prev_low
+    _s1 = pivotX_Median * 2 - pivotX_prev_high
+    _r2 = pivotX_Median + 1 * (pivotX_prev_high - pivotX_prev_low)
+    _s2 = pivotX_Median - 1 * (pivotX_prev_high - pivotX_prev_low)
+    _r3 = _r1 + pivotX_prev_high - pivotX_prev_low
+    _s3 = _s1 - pivotX_prev_high + pivotX_prev_low
+    _r4 = _r3 + _r2 - _r1
+    _s4 = _s3 + _s2 - _s1
+    _r5 = _r4 + _r3 - _r2
+    _s5 = _s4 + _s3 - _s2
+
+    array.push(r1, _r1)
+    array.push(s1, _s1)
+    array.push(r2, _r2)
+    array.push(s2, _s2)
+    array.push(r3, _r3)
+    array.push(s3, _s3)
+    array.push(r4, _r4)
+    array.push(s4, _s4)
+    array.push(r5, _r5)
+    array.push(s5, _s5)
+
+fibonacci() =>
+    pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
+    pivot_range = pivotX_prev_high - pivotX_prev_low
+
+    array.push(r1, pivotX_Median + 0.382 * pivot_range)
+    array.push(s1, pivotX_Median - 0.382 * pivot_range)
+    array.push(r2, pivotX_Median + 0.618 * pivot_range)
+    array.push(s2, pivotX_Median - 0.618 * pivot_range)
+    array.push(r3, pivotX_Median + 1 * pivot_range)
+    array.push(s3, pivotX_Median - 1 * pivot_range)
+
+classic() =>
+    pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
+    pivot_range = pivotX_prev_high - pivotX_prev_low
+
+    array.push(r1, pivotX_Median * 2 - pivotX_prev_low)
+    array.push(s1, pivotX_Median * 2 - pivotX_prev_high)
+    array.push(r2, pivotX_Median + 1 * pivot_range)
+    array.push(s2, pivotX_Median - 1 * pivot_range)
+    array.push(r3, pivotX_Median + 2 * pivot_range)
+    array.push(s3, pivotX_Median - 2 * pivot_range)
+    array.push(r4, pivotX_Median + 3 * pivot_range)
+    array.push(s4, pivotX_Median - 3 * pivot_range)
+
+camarilla() =>
+    pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
+    pivot_range = pivotX_prev_high - pivotX_prev_low
+
+    array.push(r1, pivotX_prev_close + pivot_range * 1.1 / 12.0)
+    array.push(s1, pivotX_prev_close - pivot_range * 1.1 / 12.0)
+    array.push(r2, pivotX_prev_close + pivot_range * 1.1 / 6.0)
+    array.push(s2, pivotX_prev_close - pivot_range * 1.1 / 6.0)
+    array.push(r3, pivotX_prev_close + pivot_range * 1.1 / 4.0)
+    array.push(s3, pivotX_prev_close - pivot_range * 1.1 / 4.0)
+    array.push(r4, pivotX_prev_close + pivot_range * 1.1 / 2.0)
+    array.push(s4, pivotX_prev_close - pivot_range * 1.1 / 2.0)
+
+    r5_val = pivotX_prev_high / pivotX_prev_low * pivotX_prev_close
+    array.push(r5, r5_val)
+    array.push(s5, 2 * pivotX_prev_close - r5_val)
+
+// ——— Get resolution and prev-period H/L for the alerts-driving calc engine ———
+resolution = get_pivot_resolution()
+
+pdHighSer = request.security(syminfo.tickerid, resolution, high[1], lookahead = barmerge.lookahead_on)
+pdLowSer = request.security(syminfo.tickerid, resolution, low[1], lookahead = barmerge.lookahead_on)
+
+calc_pivot() =>
+    pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
+    pivotX_Bottom = (pivotX_prev_high + pivotX_prev_low) / 2
+    pivotX_Top = pivotX_Median * 2 - pivotX_Bottom
+
+    if pivotX_Bottom > pivotX_Top
+        temp = pivotX_Bottom
+        pivotX_Bottom := pivotX_Top
+        pivotX_Top := temp
+
+    array.push(p, pivotX_Median)
+    array.push(tp, pivotX_Top)
+    array.push(bp, pivotX_Bottom)
+    array.push(pdh_arr, pdHighSer)
+    array.push(pdl_arr, pdLowSer)
+
+    if kind == TRADITIONAL
+        traditional()
+    else if kind == FIBONACCI
+        fibonacci()
+    else if kind == CLASSIC
+        classic()
+    else if kind == CAMARILLA
+        camarilla()
+
+calc_high(prev, curr) =>
+    if na(prev) or na(curr)
+        nz(prev, nz(curr, na))
+    else
+        math.max(prev, curr)
+
+calc_low(prev, curr) =>
+    if not na(prev) and not na(curr)
+        math.min(prev, curr)
+    else
+        nz(prev, nz(curr, na))
+
+[sec_open, sec_high, sec_low, prev_sec_open, prev_sec_high, prev_sec_low, prev_sec_close, prev_sec_time] = request.security(syminfo.tickerid, resolution, [open, high, low, open[1], high[1], low[1], close[1], time[1]], lookahead = barmerge.lookahead_on)
+
+sec_open_gaps_on = request.security(syminfo.tickerid, resolution, open, gaps = barmerge.gaps_on, lookahead = barmerge.lookahead_on)
+
+var is_change = false
+var uses_current_bar = false
+var change_time = int(na)
+
+is_time_change = ta.change(time(resolution)) != 0
+
+if is_time_change
+    change_time := time
+
+var start_time = time
+
+without_time_change = barstate.islast and array.size(arr_time) == 0
+
+is_can_calc_pivot =
+     not uses_current_bar and is_time_change or
+     uses_current_bar and not na(sec_open_gaps_on) or
+     without_time_change
+
+enough_bars_for_calculate = prev_sec_time >= start_time or is_daily_based
+
+if is_can_calc_pivot and enough_bars_for_calculate
+
+    if array.size(arr_time) == 0 and is_daily_based
+        pivotX_prev_open := prev_sec_open[1]
+        pivotX_prev_high := prev_sec_high[1]
+        pivotX_prev_low := prev_sec_low[1]
+        pivotX_prev_close := prev_sec_close[1]
+
+        pivotX_open := sec_open[1]
+        pivotX_high := sec_high[1]
+        pivotX_low := sec_low[1]
+
+        array.push(arr_time, start_time)
+        calc_pivot()
+
+    if is_daily_based
+        pivotX_prev_open := prev_sec_open
+        pivotX_prev_high := prev_sec_high
+        pivotX_prev_low := prev_sec_low
+        pivotX_prev_close := prev_sec_close
+
+        pivotX_open := sec_open
+        pivotX_high := sec_high
+        pivotX_low := sec_low
+
+    else
+        pivotX_prev_high := pivotX_high
+        pivotX_prev_low := pivotX_low
+        pivotX_prev_open := pivotX_open
+        pivotX_prev_close := close[1]
+
+        pivotX_open := open
+        pivotX_high := high
+        pivotX_low := low
+
+    if barstate.islast and not is_change and array.size(arr_time) > 0 and not without_time_change
+        array.set(arr_time, array.size(arr_time) - 1, change_time)
+    else if without_time_change
+        array.push(arr_time, start_time)
+    else
+        array.push(arr_time, nz(change_time, time))
+
+    calc_pivot()
+
+    if array.size(arr_time) > look_back
+
+        if array.size(arr_time) > 0
+            array.shift(arr_time)
+
+        if array.size(p) > 0 and cpr_show
+            array.shift(p)
+
+        if array.size(tp) > 0 and cpr_show
+            array.shift(tp)
+
+        if array.size(bp) > 0 and cpr_show
+            array.shift(bp)
+
+        if array.size(pdh_arr) > 0
+            array.shift(pdh_arr)
+
+        if array.size(pdl_arr) > 0
+            array.shift(pdl_arr)
+
+        if sr_show or hist_sr_show
+
+            if array.size(r1) > 0 and r1_show
+                array.shift(r1)
+
+            if array.size(s1) > 0 and s1_show
+                array.shift(s1)
+
+            if array.size(r2) > 0 and r2_show
+                array.shift(r2)
+
+            if array.size(s2) > 0 and s2_show
+                array.shift(s2)
+
+            if array.size(r3) > 0 and r3_show
+                array.shift(r3)
+
+            if array.size(s3) > 0 and s3_show
+                array.shift(s3)
+
+            if array.size(r4) > 0 and r4_show
+                array.shift(r4)
+
+            if array.size(s4) > 0 and s4_show
+                array.shift(s4)
+
+            if array.size(r5) > 0 and r5_show
+                array.shift(r5)
+
+            if array.size(s5) > 0 and s5_show
+                array.shift(s5)
+
+    is_change := true
+
+else if not is_daily_based
+    pivotX_high := math.max(pivotX_high, high)
+    pivotX_low := math.min(pivotX_low, low)
+
+if master_on and barstate.islast and not is_daily_based and array.size(arr_time) == 0
+    runtime.error('Not enough intraday data to calculate CPR. Lower the CPR Timeframe or turn on the \'Use Daily-based Values\' option in the indicator settings.')
+
+// Functions
+getAllTimeHigh() =>
+    h = 0.0
+    h := bar_index == 0 ? high : high > h[1] ? high : h[1]
+    h
+
+getAllTimeLow() =>
+    l = 0.0
+    l := bar_index == 0 ? low : low < l[1] ? low : l[1]
+    l
+
+get_resolution() =>
+    _resolution = 'M'
+
+    if timeframe.isintraday
+        _resolution := timeframe.multiplier <= 15 ? 'D' : 'W'
+    else if timeframe.isweekly or timeframe.ismonthly
+        _resolution := '12M'
+
+    _resolution
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Moving Average
+// ──────────────────────────────────────────────────────────────────────────────
+ma(source, length, type) =>
+    type == "SMA" ? ta.sma(source, length) :
+     type == "EMA" ? ta.ema(source, length) :
+     type == "SMMA (RMA)" ? ta.rma(source, length) :
+     type == "WMA" ? ta.wma(source, length) :
+     type == "VWMA" ? ta.vwma(source, length) :
+     na
+
+show_ma1 = input(false, "MA №1", inline = "MA #1", group = 'Moving Averages')
+ma1_type = input.string("EMA", "", inline = "MA #1", options = ["SMA", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group = 'Moving Averages')
+ma1_source = input(close, "", inline = "MA #1", group = 'Moving Averages')
+ma1_length = input.int(8, "", inline = "MA #1", minval = 1, group = 'Moving Averages')
+ma1_color = input(color.new(color.fuchsia, 0), "", inline = "MA #1", group = 'Moving Averages')
+ma1 = ma(ma1_source, ma1_length, ma1_type)
+
+plot(ma_on and show_ma1 ? ma1 : na, color = ma1_color, title = "MA №1", display = display.all - display.status_line)
+
+show_ma2 = input(false, "MA №2", inline = "MA #2", group = 'Moving Averages')
+ma2_type = input.string("EMA", "", inline = "MA #2", options = ["SMA", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group = 'Moving Averages')
+ma2_source = input(close, "", inline = "MA #2", group = 'Moving Averages')
+ma2_length = input.int(13, "", inline = "MA #2", minval = 1, group = 'Moving Averages')
+ma2_color = input(color.new(color.orange, 0), "", inline = "MA #2", group = 'Moving Averages')
+ma2 = ma(ma2_source, ma2_length, ma2_type)
+
+plot(ma_on and show_ma2 ? ma2 : na, color = ma2_color, title = "MA №2", display = display.all - display.status_line)
+
+show_ma3 = input(false, "MA №3", inline = "MA #3", group = 'Moving Averages')
+ma3_type = input.string("EMA", "", inline = "MA #3", options = ["SMA", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group = 'Moving Averages')
+ma3_source = input(close, "", inline = "MA #3", group = 'Moving Averages')
+ma3_length = input.int(34, "", inline = "MA #3", minval = 1, group = 'Moving Averages')
+ma3_color = input(color.new(color.green, 0), "", inline = "MA #3", group = 'Moving Averages')
+ma3 = ma(ma3_source, ma3_length, ma3_type)
+
+plot(ma_on and show_ma3 ? ma3 : na, color = ma3_color, title = "MA №3", display = display.all - display.status_line)
+
+show_ma4 = input(false, "MA №4", inline = "MA #4", group = 'Moving Averages')
+ma4_type = input.string("EMA", "", inline = "MA #4", options = ["SMA", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group = 'Moving Averages')
+ma4_source = input(close, "", inline = "MA #4", group = 'Moving Averages')
+ma4_length = input.int(21, "", inline = "MA #4", minval = 1, group = 'Moving Averages')
+ma4_color = input(color.new(color.red, 0), "", inline = "MA #4", group = 'Moving Averages')
+ma4 = ma(ma4_source, ma4_length, ma4_type)
+
+plot(ma_on and show_ma4 ? ma4 : na, color = ma4_color, title = "MA №4", display = display.all - display.status_line)
+
+show_ma5 = input(false, "MA №5", inline = "MA #5", group = 'Moving Averages')
+ma5_type = input.string("EMA", "", inline = "MA #5", options = ["SMA", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group = 'Moving Averages')
+ma5_source = input(close, "", inline = "MA #5", group = 'Moving Averages')
+ma5_length = input.int(55, "", inline = "MA #5", minval = 1, group = 'Moving Averages')
+ma5_color = input(color.new(color.navy, 0), "", inline = "MA #5", group = 'Moving Averages')
+ma5 = ma(ma5_source, ma5_length, ma5_type)
+
+plot(ma_on and show_ma5 ? ma5 : na, color = ma5_color, title = "MA №5", display = display.all - display.status_line)
+
+// ——— MA Crossovers (show toggles) ———
+show_ma_cross_12 = input.bool(false, "Show MA№1 / MA№2 Cross", group = 'Moving Averages')
+show_ma_cross_23 = input.bool(false, "Show MA№2 / MA№3 Cross", group = 'Moving Averages')
+show_ma_cross_34 = input.bool(false, "Show MA№3 / MA№4 Cross", group = 'Moving Averages')
+show_ma_cross_35 = input.bool(false, "Show MA№3 / MA№5 Cross", group = 'Moving Averages')
+show_ma_cross_45 = input.bool(false, "Show MA№4 / MA№5 Cross", group = 'Moving Averages')
+
+// ——— MA Cross Alerts (inputs) ———
+string ma_alert_grp = 'MA Cross Alerts'
+
+alert_ma_12 = input.bool(false, "Alert: MA№1 / MA№2 Cross", group = ma_alert_grp)
+alert_ma_23 = input.bool(false, "Alert: MA№2 / MA№3 Cross", group = ma_alert_grp)
+alert_ma_34 = input.bool(false, "Alert: MA№3 / MA№4 Cross", group = ma_alert_grp)
+alert_ma_35 = input.bool(false, "Alert: MA№3 / MA№5 Cross", group = ma_alert_grp)
+alert_ma_45 = input.bool(false, "Alert: MA№4 / MA№5 Cross", group = ma_alert_grp)
+
+ma_cross_alert_input = input.string("Once Per Bar", "MA Cross Alert Frequency", options = ["All", "Once Per Bar", "Once Per Bar Close"], group = ma_alert_grp, tooltip = 'After you change alert options here you must add a new alert in TradingView, select this indicator under Condition and choose Any alert() function call.')
+
+ma_cross_alert_freq =
+     ma_cross_alert_input == "Once Per Bar" ? alert.freq_once_per_bar :
+     ma_cross_alert_input == "Once Per Bar Close" ? alert.freq_once_per_bar_close :
+     alert.freq_all
+
+// ——— MA Crossovers (detection + plots) ———
+ma_cross_12_up = ta.crossover(ma1, ma2)
+ma_cross_12_down = ta.crossunder(ma1, ma2)
+ma_cross_12_col = ma1 > ma2 ? color.green : color.red
+
+ma_cross_23_up = ta.crossover(ma2, ma3)
+ma_cross_23_down = ta.crossunder(ma2, ma3)
+ma_cross_23_col = ma2 > ma3 ? color.green : color.red
+
+ma_cross_34_up = ta.crossover(ma3, ma4)
+ma_cross_34_down = ta.crossunder(ma3, ma4)
+ma_cross_34_col = ma3 > ma4 ? color.green : color.red
+
+ma_cross_35_up = ta.crossover(ma3, ma5)
+ma_cross_35_down = ta.crossunder(ma3, ma5)
+ma_cross_35_col = ma3 > ma5 ? color.green : color.red
+
+ma_cross_45_up = ta.crossover(ma4, ma5)
+ma_cross_45_down = ta.crossunder(ma4, ma5)
+ma_cross_45_col = ma4 > ma5 ? color.green : color.red
+
+plot(ma_on and show_ma_cross_12 and (ma_cross_12_up or ma_cross_12_down) ? ma1 : na, title = "MA№1/№2 Cross", style = plot.style_cross, linewidth = 3, color = ma_cross_12_col, display = display.all - display.status_line)
+plot(ma_on and show_ma_cross_23 and (ma_cross_23_up or ma_cross_23_down) ? ma2 : na, title = "MA№2/№3 Cross", style = plot.style_cross, linewidth = 3, color = ma_cross_23_col, display = display.all - display.status_line)
+plot(ma_on and show_ma_cross_34 and (ma_cross_34_up or ma_cross_34_down) ? ma3 : na, title = "MA№3/№4 Cross", style = plot.style_cross, linewidth = 3, color = ma_cross_34_col, display = display.all - display.status_line)
+plot(ma_on and show_ma_cross_35 and (ma_cross_35_up or ma_cross_35_down) ? ma3 : na, title = "MA№3/№5 Cross", style = plot.style_cross, linewidth = 3, color = ma_cross_35_col, display = display.all - display.status_line)
+plot(ma_on and show_ma_cross_45 and (ma_cross_45_up or ma_cross_45_down) ? ma4 : na, title = "MA№4/№5 Cross", style = plot.style_cross, linewidth = 3, color = ma_cross_45_col, display = display.all - display.status_line)
+
+// ——— MA Crossover alerts (alert() based: choose "Any alert() function call" in the TradingView alert) ———
+if ma_on and alerts_on and alert_ma_12 and ma_cross_12_up
+    alert('MA№1 crossed above MA№2', ma_cross_alert_freq)
+if ma_on and alerts_on and alert_ma_12 and ma_cross_12_down
+    alert('MA№1 crossed below MA№2', ma_cross_alert_freq)
+
+if ma_on and alerts_on and alert_ma_23 and ma_cross_23_up
+    alert('MA№2 crossed above MA№3', ma_cross_alert_freq)
+if ma_on and alerts_on and alert_ma_23 and ma_cross_23_down
+    alert('MA№2 crossed below MA№3', ma_cross_alert_freq)
+
+if ma_on and alerts_on and alert_ma_34 and ma_cross_34_up
+    alert('MA№3 crossed above MA№4', ma_cross_alert_freq)
+if ma_on and alerts_on and alert_ma_34 and ma_cross_34_down
+    alert('MA№3 crossed below MA№4', ma_cross_alert_freq)
+
+if ma_on and alerts_on and alert_ma_35 and ma_cross_35_up
+    alert('MA№3 crossed above MA№5', ma_cross_alert_freq)
+if ma_on and alerts_on and alert_ma_35 and ma_cross_35_down
+    alert('MA№3 crossed below MA№5', ma_cross_alert_freq)
+
+if ma_on and alerts_on and alert_ma_45 and ma_cross_45_up
+    alert('MA№4 crossed above MA№5', ma_cross_alert_freq)
+if ma_on and alerts_on and alert_ma_45 and ma_cross_45_down
+    alert('MA№4 crossed below MA№5', ma_cross_alert_freq)
+
+// ──────────────────────────────────────────────────────────────────────────────
+// SuperTrend (Factor 2 and Factor 3)
+// ──────────────────────────────────────────────────────────────────────────────
+string st_grp1 = 'SuperTrend #1 (Factor 2)'
+string st_grp2 = 'SuperTrend #2 (Factor 3)'
+
+st1_show = input.bool(true, 'Show SuperTrend #1', group = st_grp1)
+st1_factor = input.float(2.0, 'Factor', step = 0.1, group = st_grp1)
+st1_atrLen = input.int(10, 'ATR Length', minval = 1, group = st_grp1)
+st1_upCol = input.color(color.green, 'Uptrend Color', group = st_grp1)
+st1_dnCol = input.color(color.red, 'Downtrend Color', group = st_grp1)
+
+st2_show = input.bool(true, 'Show SuperTrend #2', group = st_grp2)
+st2_factor = input.float(3.0, 'Factor', step = 0.1, group = st_grp2)
+st2_atrLen = input.int(10, 'ATR Length', minval = 1, group = st_grp2)
+st2_upCol = input.color(color.lime, 'Uptrend Color', group = st_grp2)
+st2_dnCol = input.color(color.maroon, 'Downtrend Color', group = st_grp2)
+
+[st1_val, st1_dir] = ta.supertrend(st1_factor, st1_atrLen)
+[st2_val, st2_dir] = ta.supertrend(st2_factor, st2_atrLen)
+
+st1_color = st1_dir < 0 ? st1_upCol : st1_dnCol
+st2_color = st2_dir < 0 ? st2_upCol : st2_dnCol
+
+st1_plot = plot(st_on and st1_show ? st1_val : na, title = 'SuperTrend #1 (Factor 2)', color = st1_color, linewidth = 2, style = plot.style_line, display = display.all - display.status_line)
+st2_plot = plot(st_on and st2_show ? st2_val : na, title = 'SuperTrend #2 (Factor 3)', color = st2_color, linewidth = 2, style = plot.style_line, display = display.all - display.status_line)
+
+// --------------------------------------------------------------------------------
+// Activated Alerts
+// --------------------------------------------------------------------------------
+var string ALERT_EVERYTIME = 'All'
+var string ALERT_ONCE_PER_BAR = 'Once Per Bar'
+var string ALERT_ONCE_PER_BAR_CLOSE = 'Once Per Bar Close'
+
+alert_p = input.bool(false, 'P', inline = 'P', group = 'Activated Alerts')
+alert_s1 = input.bool(false, 'S1', inline = 'S1/R1', group = 'Activated Alerts')
+alert_r1 = input.bool(false, 'R1', inline = 'S1/R1', group = 'Activated Alerts')
+alert_s2 = input.bool(false, 'S2', inline = 'S2/R2', group = 'Activated Alerts')
+alert_r2 = input.bool(false, 'R2', inline = 'S2/R2', group = 'Activated Alerts')
+alert_s3 = input.bool(false, 'S3', inline = 'S3/R3', group = 'Activated Alerts')
+alert_r3 = input.bool(false, 'R3', inline = 'S3/R3', group = 'Activated Alerts')
+alert_s4 = input.bool(false, 'S4', inline = 'S4/R4', group = 'Activated Alerts')
+alert_r4 = input.bool(false, 'R4', inline = 'S4/R4', group = 'Activated Alerts')
+alert_s5 = input.bool(false, 'S5', inline = 'S5/R5', group = 'Activated Alerts')
+alert_r5 = input.bool(false, 'R5', inline = 'S5/R5', group = 'Activated Alerts')
+
+alert_input = input.string(title = 'Alert Frequency', defval = ALERT_ONCE_PER_BAR, options = [ALERT_EVERYTIME, ALERT_ONCE_PER_BAR, ALERT_ONCE_PER_BAR_CLOSE], group = 'Activated Alerts', tooltip = 'After you change alert options here you must add a new alert in TradingView and select this indicator under Condition.')
+
+alert_cpr_state = input.bool(true, 'CPR Location / Width / Type Alerts', group = 'Activated Alerts', tooltip = 'Fires an alert() when the Monthly / Weekly / Daily CPR location, the Daily CPR width or the Daily CPR type changes. Create the TradingView alert with Condition = this indicator and choose Any alert() function call.')
+alert_smc_events = input.bool(true, 'SMC Alerts', group = 'Activated Alerts', tooltip = 'Fires an alert() for every SMC event (BOS, CHoCH, order blocks, EQH/EQL, FVG, HTF FVG, HTF OB, breaker blocks) while SMC Concepts is the active indicator. Create the TradingView alert with Condition = this indicator and choose Any alert() function call.')
+
+// ——— Alert Filters (choose what the alert() calls send) ———
+string af_grp = 'Alert Filters (choose what the alert() calls send)'
+
+af_locM = input.bool(true, 'Monthly CPR location', group = af_grp)
+af_locW = input.bool(true, 'Weekly CPR location', group = af_grp)
+af_locD = input.bool(true, 'Daily CPR location', group = af_grp)
+af_width = input.bool(true, 'Daily CPR width', group = af_grp)
+af_type = input.bool(true, 'Daily CPR type', group = af_grp)
+
+af_int_bos = input.bool(true, 'SMC: Internal BOS', group = af_grp)
+af_int_choch = input.bool(true, 'SMC: Internal CHoCH', group = af_grp)
+af_sw_bos = input.bool(true, 'SMC: Swing BOS', group = af_grp)
+af_sw_choch = input.bool(true, 'SMC: Swing CHoCH', group = af_grp)
+af_ob = input.bool(true, 'SMC: Order block breakouts (internal + swing)', group = af_grp)
+af_eq = input.bool(true, 'SMC: Equal highs / lows', group = af_grp)
+af_fvg = input.bool(true, 'SMC: Fair value gaps', group = af_grp)
+af_htf_fvg = input.bool(true, 'SMC: HTF fair value gaps', group = af_grp)
+af_htf_ob = input.bool(true, 'SMC: HTF order blocks', group = af_grp)
+af_bb = input.bool(true, 'SMC: Breaker blocks', group = af_grp)
+af_smc_dir = input.string('Both', 'SMC direction filter', options = ['Both', 'Bullish only', 'Bearish only'], group = af_grp, tooltip = 'Equal highs and bearish items count as Bearish; equal lows and bullish items count as Bullish.\nCreate one TradingView alert per setup you want (Condition = this indicator, Any alert() function call). Each alert keeps the filter values it was created with.')
+
+alert_frequency =
+     alert_input == ALERT_ONCE_PER_BAR ? alert.freq_once_per_bar :
+     alert_input == ALERT_ONCE_PER_BAR_CLOSE ? alert.freq_once_per_bar_close :
+     alert.freq_all
+
+cur_p = array.size(p) > 0 ? array.get(p, array.size(p) - 1) : na
+cur_s1 = array.size(s1) > 0 ? array.get(s1, array.size(s1) - 1) : na
+cur_r1 = array.size(r1) > 0 ? array.get(r1, array.size(r1) - 1) : na
+cur_s2 = array.size(s2) > 0 ? array.get(s2, array.size(s2) - 1) : na
+cur_r2 = array.size(r2) > 0 ? array.get(r2, array.size(r2) - 1) : na
+cur_s3 = array.size(s3) > 0 ? array.get(s3, array.size(s3) - 1) : na
+cur_r3 = array.size(r3) > 0 ? array.get(r3, array.size(r3) - 1) : na
+cur_s4 = array.size(s4) > 0 ? array.get(s4, array.size(s4) - 1) : na
+cur_r4 = array.size(r4) > 0 ? array.get(r4, array.size(r4) - 1) : na
+cur_s5 = array.size(s5) > 0 ? array.get(s5, array.size(s5) - 1) : na
+cur_r5 = array.size(r5) > 0 ? array.get(r5, array.size(r5) - 1) : na
+
+if alerts_on and alert_p and not na(cur_p) and ta.crossover(close, cur_p)
+    alert('Price crossed above CPR Pivot (P)', alert_frequency)
+if alerts_on and alert_p and not na(cur_p) and ta.crossunder(close, cur_p)
+    alert('Price crossed below CPR Pivot (P)', alert_frequency)
+
+if alerts_on and alert_r1 and not na(cur_r1) and ta.crossover(close, cur_r1)
+    alert('Price crossed above R1', alert_frequency)
+if alerts_on and alert_s1 and not na(cur_s1) and ta.crossunder(close, cur_s1)
+    alert('Price crossed below S1', alert_frequency)
+
+if alerts_on and alert_r2 and not na(cur_r2) and ta.crossover(close, cur_r2)
+    alert('Price crossed above R2', alert_frequency)
+if alerts_on and alert_s2 and not na(cur_s2) and ta.crossunder(close, cur_s2)
+    alert('Price crossed below S2', alert_frequency)
+
+if alerts_on and alert_r3 and not na(cur_r3) and ta.crossover(close, cur_r3)
+    alert('Price crossed above R3', alert_frequency)
+if alerts_on and alert_s3 and not na(cur_s3) and ta.crossunder(close, cur_s3)
+    alert('Price crossed below S3', alert_frequency)
+
+if alerts_on and alert_r4 and not na(cur_r4) and ta.crossover(close, cur_r4)
+    alert('Price crossed above R4', alert_frequency)
+if alerts_on and alert_s4 and not na(cur_s4) and ta.crossunder(close, cur_s4)
+    alert('Price crossed below S4', alert_frequency)
+
+if alerts_on and alert_r5 and not na(cur_r5) and ta.crossover(close, cur_r5)
+    alert('Price crossed above R5', alert_frequency)
+if alerts_on and alert_s5 and not na(cur_s5) and ta.crossunder(close, cur_s5)
+    alert('Price crossed below S5', alert_frequency)
+
+//====================================================================
+// CPR Table
+//====================================================================
+string t_GRP_TABLE = '════════ Table Options ═════════'
+
+t_toggleDarkColors = input.bool(false, title = 'Dark Mode', group = t_GRP_TABLE)
+t_biasMode = input.string('Current', 'Bias Mode', group = t_GRP_TABLE, options = ['Current', 'Pairs'])
+
+t_FrameCol = t_toggleDarkColors ? color.new(#999999, 50) : color.rgb(241, 241, 241)
+t_BorderCol = t_toggleDarkColors ? color.new(#999999, 50) : color.rgb(241, 241, 241)
+t_TextColor = t_toggleDarkColors ? color.new(color.white, 0) : color.new(color.black, 0)
+t_BGColor = t_toggleDarkColors ? color.new(color.black, 100) : color.new(color.white, 100)
+
+string t_tablesize = input.string('small', 'Size', inline = 't_tblsz', group = t_GRP_TABLE, options = ['tiny', 'small', 'normal', 'large', 'huge', 'auto'])
+string t_tableposY = input.string('middle', '↕', inline = 't_tblsz', group = t_GRP_TABLE, options = ['top', 'middle', 'bottom'])
+string t_tableposX = input.string('right', '↔', inline = 't_tblsz', group = t_GRP_TABLE, options = ['left', 'center', 'right'])
+
+t_resDaily = 'D'
+t_resWeekly = 'W'
+t_resMonthly = 'M'
+
+t_getBounds(res, h, l, c) =>
+    t_pivot = (h + l + c) / 3.0
+    t_bc = (h + l) / 2.0
+    t_tc = 2.0 * t_pivot - t_bc
+    [t_bc, t_tc, t_pivot]
+
+[t_ph1, t_pl1, t_pc1] = request.security(syminfo.tickerid, t_resDaily, [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+[t_ph2, t_pl2, t_pc2] = request.security(syminfo.tickerid, t_resDaily, [high[2], low[2], close[2]], lookahead = barmerge.lookahead_on)
+[t_ph3, t_pl3, t_pc3] = request.security(syminfo.tickerid, t_resDaily, [high[3], low[3], close[3]], lookahead = barmerge.lookahead_on)
+
+[t_bc1, t_tc1, t_pivot1] = t_getBounds(t_resDaily, t_ph1, t_pl1, t_pc1)
+[t_bc2, t_tc2, t_pivot2] = t_getBounds(t_resDaily, t_ph2, t_pl2, t_pc2)
+[t_bc3, t_tc3, t_pivot3] = t_getBounds(t_resDaily, t_ph3, t_pl3, t_pc3)
+
+[t_phW, t_plW, t_pcW] = request.security(syminfo.tickerid, t_resWeekly, [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+[t_bcW, t_tcW, t_pivotW] = t_getBounds(t_resWeekly, t_phW, t_plW, t_pcW)
+
+[t_phM, t_plM, t_pcM] = request.security(syminfo.tickerid, t_resMonthly, [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+[t_bcM, t_tcM, t_pivotM] = t_getBounds(t_resMonthly, t_phM, t_plM, t_pcM)
+
+t_calcLoc(res, bc, tc) =>
+    t_lower = math.min(bc, tc)
+    t_upper = math.max(bc, tc)
+
+    t_c = request.security(syminfo.tickerid, res, close, lookahead = barmerge.lookahead_on)
+
+    t_c > t_upper ? 'Above' : t_c < t_lower ? 'Below' : 'Inside'
+
+t_locM = t_calcLoc(t_resMonthly, t_bcM, t_tcM)
+t_locW = t_calcLoc(t_resWeekly, t_bcW, t_tcW)
+t_locD = t_calcLoc(t_resDaily, t_bc1, t_tc1)
+
+t_cpr_width = math.abs(t_tc1 - t_bc1) / t_pivot1 * 100
+
+t_widthLabel =
+     t_cpr_width <= 0.05 ? 'Super Narrow' :
+     t_cpr_width > 0.05 and t_cpr_width < 0.13 ? 'Narrow' :
+     t_cpr_width <= 0.3 ? 'Medium' :
+     'Wide'
+
+t_l1 = math.min(t_bc1, t_tc1)
+t_u1 = math.max(t_bc1, t_tc1)
+
+t_l2 = math.min(t_bc2, t_tc2)
+t_u2 = math.max(t_bc2, t_tc2)
+
+t_l3 = math.min(t_bc3, t_tc3)
+t_u3 = math.max(t_bc3, t_tc3)
+
+t_isAsc = t_l2 < t_l1 and t_u2 < t_u1 and t_l2 < t_u1
+t_isDesc = t_l2 > t_l1 and t_u2 > t_u1 and t_l2 > t_u1
+t_isInside = t_l1 >= t_l2 and t_u1 <= t_u2
+t_isOutside = t_l1 <= t_l2 and t_u1 >= t_u2
+
+t_isAscRev =
+     t_l3 < t_l2 and
+     t_u3 < t_u2 and
+     t_l2 > t_l1 and
+     t_u2 > t_u1 and
+     t_l2 > t_u2
+
+t_isDrRev =
+     t_l3 > t_l2 and
+     t_u3 > t_u2 and
+     t_l2 < t_l1 and
+     t_u2 < t_u1 and
+     t_l2 < t_l1
+
+t_isOverlap =
+     not (t_isAsc or t_isDesc or t_isInside or t_isOutside or t_isAscRev or t_isDrRev)
+
+t_typeLabel =
+     t_isAscRev ? 'Asc Rev' :
+     t_isDrRev ? 'Desc Rev' :
+     t_isAsc ? 'Ascending' :
+     t_isDesc ? 'Descending' :
+     t_isInside ? 'Inside' :
+     t_isOutside ? 'Outside' :
+     'Overlapping'
+
+t_newDay = ta.change(time('D')) != 0
+
+var float t_dayOpenPrice = na
+
+if t_newDay
+    t_dayOpenPrice := open
+
+t_r1 = 2 * t_pivot1 - t_pl1
+t_s1 = 2 * t_pivot1 - t_ph1
+t_r2 = t_pivot1 + (t_ph1 - t_pl1)
+t_s2 = t_pivot1 - (t_ph1 - t_pl1)
+t_r3 = t_pivot1 + 2 * (t_ph1 - t_pl1)
+t_s3 = t_pivot1 - 2 * (t_ph1 - t_pl1)
+t_r4 = t_pivot1 + 3 * (t_ph1 - t_pl1)
+t_s4 = t_pivot1 - 3 * (t_ph1 - t_pl1)
+
+t_lowerCPR = math.min(t_bc1, t_tc1)
+t_upperCPR = math.max(t_bc1, t_tc1)
+
+t_loc12(price, lowerCPR, upperCPR, r1_, r2_, r3_, r4_, s1_, s2_, s3_, s4_) =>
+    price >= lowerCPR and price <= upperCPR ? "Inside CPR" :
+     price > upperCPR ?
+         (price <= r1_ ? "Between CPR & R1" :
+          price <= r2_ ? "Beyond R1" :
+          price <= r3_ ? "Beyond R2" :
+          price <= r4_ ? "Beyond R3" :
+          "Beyond R4") :
+         (price >= s1_ ? "Between CPR & S1" :
+          price >= s2_ ? "Beyond S1" :
+          price >= s3_ ? "Beyond S2" :
+          price >= s4_ ? "Beyond S3" :
+          "Beyond S4")
+
+t_openLoc = na(t_dayOpenPrice) ? "—" : t_loc12(t_dayOpenPrice, t_lowerCPR, t_upperCPR, t_r1, t_r2, t_r3, t_r4, t_s1, t_s2, t_s3, t_s4)
+
+t_currentLoc = t_loc12(close, t_lowerCPR, t_upperCPR, t_r1, t_r2, t_r3, t_r4, t_s1, t_s2, t_s3, t_s4)
+
+t_locColor12(lbl) =>
+    lbl == "Inside CPR" ? color.blue :
+     lbl == "Between CPR & R1" ? color.blue :
+     lbl == "Between CPR & S1" ? color.blue :
+     lbl == "Beyond R1" ? color.rgb(0, 170, 0) :
+     lbl == "Beyond R2" ? color.rgb(0, 200, 0) :
+     lbl == "Beyond R3" ? color.rgb(0, 230, 0) :
+     lbl == "Beyond R4" ? color.rgb(0, 255, 0) :
+     lbl == "Beyond S1" ? color.rgb(200, 0, 0) :
+     lbl == "Beyond S2" ? color.rgb(220, 0, 0) :
+     lbl == "Beyond S3" ? color.rgb(240, 0, 0) :
+     color.rgb(255, 0, 0)
+
+t_openCol = na(t_dayOpenPrice) ? color.gray : t_locColor12(t_openLoc)
+t_currCol = t_locColor12(t_currentLoc)
+
+symbolNifty = "NSE:NIFTY1!"
+symbolBankNifty = "NSE:BANKNIFTY1!"
+
+f_cpr(sym) =>
+    dh = request.security(sym, "D", high[1], lookahead = barmerge.lookahead_off)
+    dl = request.security(sym, "D", low[1], lookahead = barmerge.lookahead_off)
+    dc = request.security(sym, "D", close[1], lookahead = barmerge.lookahead_off)
+
+    pp = (dh + dl + dc) / 3.0
+    bc = (dh + dl) / 2.0
+    tc = 2.0 * pp - bc
+
+    [pp, bc, tc]
+
+f_loc(price, bc, tc) =>
+    upper = math.max(bc, tc)
+    lower = math.min(bc, tc)
+
+    isAbove = price > upper
+    isBelow = price < lower
+
+    isAbove ? 1 : isBelow ? -1 : 0
+
+[ppN, bcN, tcN] = f_cpr(symbolNifty)
+[ppB, bcB, tcB] = f_cpr(symbolBankNifty)
+
+closeN = request.security(symbolNifty, timeframe.period, close, lookahead = barmerge.lookahead_off)
+closeB = request.security(symbolBankNifty, timeframe.period, close, lookahead = barmerge.lookahead_off)
+
+locN = f_loc(closeN, bcN, tcN)
+locB = f_loc(closeB, bcB, tcB)
+
+niftyAboveCPR = locN == 1
+niftyBelowCPR = locN == -1
+bankniftyAboveCPR = locB == 1
+bankniftyBelowCPR = locB == -1
+
+bothAbove = niftyAboveCPR and bankniftyAboveCPR
+bothBelow = niftyBelowCPR and bankniftyBelowCPR
+
+biasText = bothAbove ? "BULLS" : bothBelow ? "BEARS" : "PATIENCE"
+biasColor = bothAbove ? color.new(color.green, 0) : bothBelow ? color.new(color.red, 0) : color.new(color.gray, 0)
+
+t_tradeBias_curr = t_locD == 'Above' ? 'Bulls' : t_locD == 'Below' ? 'Bears' : 'Patience'
+t_tradeBias_pairs = bothAbove ? 'Bulls' : bothBelow ? 'Bears' : 'Patience'
+
+t_tradeBias = t_biasMode == 'Current' ? t_tradeBias_curr : t_tradeBias_pairs
+
+t_tradeBiasCol =
+     t_tradeBias == 'Bulls' ? color.green :
+     t_tradeBias == 'Bears' ? color.red :
+     color.gray
+
+f_loc_text(loc) =>
+    loc == 1 ? "Above CPR" : loc == -1 ? "Below CPR" : "Inside CPR"
+
+f_loc_color(loc) =>
+    loc == 1 ? color.new(color.lime, 0) :
+     loc == -1 ? color.new(color.red, 0) :
+     color.new(color.orange, 0)
+
+// Table is created only while CPR + Multi is the active indicator, and deleted otherwise
+var table t_T = na
+
+if barstate.islast and not master_on and not na(t_T)
+    table.delete(t_T)
+    t_T := na
+
+if barstate.islast and master_on
+
+    if na(t_T)
+        t_T := table.new(position = t_tableposY + '_' + t_tableposX, columns = 2, rows = 20, bgcolor = t_BGColor, frame_color = t_FrameCol, frame_width = 1, border_color = t_BorderCol, border_width = 1)
+
+    table.merge_cells(t_T, 0, 0, 1, 0)
+    table.cell(t_T, 0, 0, 'Trust the ' + t_tradeBias, bgcolor = t_tradeBiasCol, text_color = color.white, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    table.cell(t_T, 0, 1, 'Monthly', text_color = t_TextColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+    table.cell(t_T, 1, 1, t_locM, text_color = t_locM == 'Above' ? color.green : t_locM == 'Below' ? color.red : color.orange, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    table.cell(t_T, 0, 2, 'Weekly', text_color = t_TextColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+    table.cell(t_T, 1, 2, t_locW, text_color = t_locW == 'Above' ? color.green : t_locW == 'Below' ? color.red : t_locW == 'Inside' ? color.orange : color.gray, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    table.cell(t_T, 0, 3, 'Daily', text_color = t_TextColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+    table.cell(t_T, 1, 3, t_locD, text_color = t_locD == 'Above' ? color.green : t_locD == 'Below' ? color.red : color.orange, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    table.cell(t_T, 0, 4, 'Open', text_color = t_TextColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+    table.cell(t_T, 1, 4, t_openLoc, text_color = t_openCol, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    table.cell(t_T, 0, 5, 'Now', text_color = t_TextColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+    table.cell(t_T, 1, 5, t_currentLoc, text_color = t_currCol, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    table.merge_cells(t_T, 0, 6, 1, 6)
+    table.cell(t_T, 0, 6, '', bgcolor = color.new(t_tradeBiasCol, 50), text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    table.cell(t_T, 0, 7, 'CPR Width', text_color = t_TextColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+    table.cell(t_T, 1, 7, t_widthLabel, text_color = t_TextColor, text_halign = text.align_center, text_size = t_tablesize)
+
+    table.cell(t_T, 0, 8, 'CPR Type', text_color = t_TextColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+    table.cell(t_T, 1, 8, t_typeLabel, text_color = t_TextColor, text_halign = text.align_center, text_size = t_tablesize)
+
+//====================================================================
+// MULTI-TIMEFRAME CPR
+//====================================================================
+mtf_autoDaily = timeframe.isintraday and timeframe.multiplier <= 15
+mtf_autoWeekly = timeframe.isintraday and timeframe.multiplier > 15 and timeframe.multiplier <= 75
+mtf_autoMonthly = not (mtf_autoDaily or mtf_autoWeekly)
+
+// Effective display selections (all gated by the CPR master switch)
+mtf_effDaily = master_on and (pivot_mode == 'Manual' ? manual_daily : mtf_autoDaily)
+mtf_effWeekly = master_on and (pivot_mode == 'Manual' ? manual_weekly : mtf_autoWeekly)
+mtf_effMonthly = master_on and (pivot_mode == 'Manual' ? manual_monthly : mtf_autoMonthly)
+
+mtf_show_next_day = master_on and pivot_mode == 'Manual' and manual_next_day
+mtf_show_next_week = master_on and pivot_mode == 'Manual' and manual_next_week
+mtf_show_next_month = master_on and pivot_mode == 'Manual' and manual_next_month
+
+// Number of CPR Back controls how many of the 3 historical periods are displayed
+mtf_hist_count = math.max(1, math.min(look_back, 3))
+
+var mtf_lines = array.new_line()
+var mtf_labels = array.new_label()
+
+// calc_rs_levels is kind-aware (Traditional / Fibonacci / Classic / Camarilla). Camarilla uses the period close (c).
+calc_rs_levels(piv, h, l, c) =>
+    rng = h - l
+
+    float _r1 = na
+    float _s1 = na
+    float _r2 = na
+    float _s2 = na
+    float _r3 = na
+    float _s3 = na
+    float _r4 = na
+    float _s4 = na
+    float _r5 = na
+    float _s5 = na
+
+    if kind == TRADITIONAL
+        _r1 := piv * 2 - l
+        _s1 := piv * 2 - h
+        _r2 := piv + rng
+        _s2 := piv - rng
+        _r3 := _r1 + rng
+        _s3 := _s1 - rng
+        _r4 := _r3 + _r2 - _r1
+        _s4 := _s3 + _s2 - _s1
+        _r5 := _r4 + _r3 - _r2
+        _s5 := _s4 + _s3 - _s2
+
+    else if kind == FIBONACCI
+        _r1 := piv + 0.382 * rng
+        _s1 := piv - 0.382 * rng
+        _r2 := piv + 0.618 * rng
+        _s2 := piv - 0.618 * rng
+        _r3 := piv + 1 * rng
+        _s3 := piv - 1 * rng
+
+    else if kind == CLASSIC
+        _r1 := piv * 2 - l
+        _s1 := piv * 2 - h
+        _r2 := piv + 1 * rng
+        _s2 := piv - 1 * rng
+        _r3 := piv + 2 * rng
+        _s3 := piv - 2 * rng
+        _r4 := piv + 3 * rng
+        _s4 := piv - 3 * rng
+
+    else if kind == CAMARILLA
+        _r1 := c + rng * 1.1 / 12.0
+        _s1 := c - rng * 1.1 / 12.0
+        _r2 := c + rng * 1.1 / 6.0
+        _s2 := c - rng * 1.1 / 6.0
+        _r3 := c + rng * 1.1 / 4.0
+        _s3 := c - rng * 1.1 / 4.0
+        _r4 := c + rng * 1.1 / 2.0
+        _s4 := c - rng * 1.1 / 2.0
+        _r5 := h / l * c
+        _s5 := 2 * c - _r5
+
+    [_r1, _s1, _r2, _s2, _r3, _s3, _r4, _s4, _r5, _s5]
+
+mtf_level_text(name, y, show_lbl, show_prc) =>
+    show_lbl and show_prc ? str.format('{0} - {1}', name, math.round_to_mintick(y)) : show_lbl ? name : str.format('{0}', math.round_to_mintick(y))
+
+mtf_draw_hline(x1, x2, y, col, style_, useBarIndex = false) =>
+    line ln = na
+
+    if not na(y) and not na(x1) and not na(x2) and x2 > x1
+        ln := line.new(x1, y, x2, y, xloc = useBarIndex ? xloc.bar_index : xloc.bar_time, color = col, width = line_width, style = style_)
+        array.push(mtf_lines, ln)
+
+    ln
+
+mtf_draw_label(x, y, txt, col, useBarIndex = false) =>
+    if not na(y) and not na(x) and txt != ''
+        array.push(mtf_labels, label.new(x, y, xloc = useBarIndex ? xloc.bar_index : xloc.bar_time, text = txt, style = label.style_none, textcolor = col, color = #00000000, size = size.tiny))
+
+get_sr_line_style() =>
+    sr_line_style == 'Dashed' ? line.style_dashed : sr_line_style == 'Dotted' ? line.style_dotted : line.style_solid
+
+mtf_draw_sr_line(x1, x2, y, col, useBarIndex) =>
+    mtf_draw_hline(x1, x2, y, col, get_sr_line_style(), useBarIndex)
+
+// NOTE: `pc` (the period's close) was added as a parameter so the optional
+// Camarilla R3/S3 lines can be calculated for every period that is drawn.
+draw_mtf_period(tag, x1, x2, piv, bc, tc, r1v, s1v, r2v, s2v, r3v, s3v, r4v, s4v, r5v, s5v, ph, pl, pc, useBarIndex = false) =>
+
+    style_cpr = cpr_line_style == 'Solid' ? line.style_solid : cpr_line_style == 'Dashed' ? line.style_dashed : line.style_dotted
+
+    labelX = position_labels == 'Left' ? x1 : x2
+
+    line pivLine = na
+    line tcLine = na
+    line bcLine = na
+
+    line r1Line = na
+    line s1Line = na
+
+    // Camarilla has no CPR (central pivot range): Pivot/TC/BC lines, fill and labels are skipped for it
+    // cpr_pivot_master OFF hides the whole CPR block (lines, fill, labels, prices)
+    if cpr_pivot_master and cpr_show and kind != CAMARILLA
+
+        cprLineCol = cpr_show_lines ? cpr_color : color.new(cpr_color, 100)
+
+        pivLine := mtf_draw_hline(x1, x2, piv, cprLineCol, style_cpr, useBarIndex)
+        tcLine := mtf_draw_hline(x1, x2, tc, cprLineCol, style_cpr, useBarIndex)
+        bcLine := mtf_draw_hline(x1, x2, bc, cprLineCol, style_cpr, useBarIndex)
+
+        if cpr_show_fill and not na(tcLine) and not na(bcLine)
+            linefill.new(tcLine, bcLine, color.new(cpr_color, 70))
+
+        if cpr_show_labels or cpr_show_prices
+            mtf_draw_label(labelX, piv, mtf_level_text(tag + ' CPR', piv, cpr_show_labels, cpr_show_prices), cpr_color, useBarIndex)
+
+        if cpr_show_prices
+            mtf_draw_label(labelX, tc, mtf_level_text('', tc, false, true), cpr_color, useBarIndex)
+            mtf_draw_label(labelX, bc, mtf_level_text('', bc, false, true), cpr_color, useBarIndex)
+
+    // ------------------------------------------------------------------
+    // Camarilla R3 / S3 alongside the CPR.
+    // Shown only while CPR is ON and "Show Camarilla Pivot R3/S3 Levels" is set to Yes.
+    // Hidden together with everything else when the CPR + Pivots master switch is OFF.
+    // Calculated from the period's own H/L/C, so it works the same for every pivot Type
+    // and every period (D / W / M and Next Day / Week / Month).
+    // R3 uses cam_r3_color and S3 uses cam_s3_color (separate colors).
+    // ------------------------------------------------------------------
+    if cpr_pivot_master and cpr_show and show_cam_r3s3 == 'Yes'
+
+        cam_rng = ph - pl
+        cam_r3_val = pc + cam_rng * 1.1 / 4.0
+        cam_s3_val = pc - cam_rng * 1.1 / 4.0
+
+        mtf_draw_hline(x1, x2, cam_r3_val, cam_r3_color, get_sr_line_style(), useBarIndex)
+        mtf_draw_hline(x1, x2, cam_s3_val, cam_s3_color, get_sr_line_style(), useBarIndex)
+
+        if sr_show_labels or sr_show_prices
+            mtf_draw_label(labelX, cam_r3_val, mtf_level_text(tag + ' Cam R3', cam_r3_val, sr_show_labels, sr_show_prices), cam_r3_color, useBarIndex)
+            mtf_draw_label(labelX, cam_s3_val, mtf_level_text(tag + ' Cam S3', cam_s3_val, sr_show_labels, sr_show_prices), cam_s3_color, useBarIndex)
+
+    // cpr_pivot_master OFF hides all S1-S5 / R1-R5 lines, labels and prices
+    if cpr_pivot_master and sr_show
+
+        // For Camarilla, R1/S1/R2/S2 are intentionally not drawn (only R3/S3/R4/S4/R5/S5)
+        if r1_show and kind != CAMARILLA
+            r1Line := mtf_draw_sr_line(x1, x2, r1v, r1_color, useBarIndex)
+
+            if sr_show_labels or sr_show_prices
+                mtf_draw_label(labelX, r1v, mtf_level_text(tag + ' R1', r1v, sr_show_labels, sr_show_prices), r1_color, useBarIndex)
+
+        if s1_show and kind != CAMARILLA
+            s1Line := mtf_draw_sr_line(x1, x2, s1v, s1_color, useBarIndex)
+
+            if sr_show_labels or sr_show_prices
+                mtf_draw_label(labelX, s1v, mtf_level_text(tag + ' S1', s1v, sr_show_labels, sr_show_prices), s1_color, useBarIndex)
+
+        if r2_show and kind != CAMARILLA
+            mtf_draw_sr_line(x1, x2, r2v, r2_color, useBarIndex)
+
+            if sr_show_labels or sr_show_prices
+                mtf_draw_label(labelX, r2v, mtf_level_text(tag + ' R2', r2v, sr_show_labels, sr_show_prices), r2_color, useBarIndex)
+
+        if s2_show and kind != CAMARILLA
+            mtf_draw_sr_line(x1, x2, s2v, s2_color, useBarIndex)
+
+            if sr_show_labels or sr_show_prices
+                mtf_draw_label(labelX, s2v, mtf_level_text(tag + ' S2', s2v, sr_show_labels, sr_show_prices), s2_color, useBarIndex)
+
+        if r3_show
+            mtf_draw_sr_line(x1, x2, r3v, r3_color, useBarIndex)
+
+            if sr_show_labels or sr_show_prices
+                mtf_draw_label(labelX, r3v, mtf_level_text(tag + ' R3', r3v, sr_show_labels, sr_show_prices), r3_color, useBarIndex)
+
+        if s3_show
+            mtf_draw_sr_line(x1, x2, s3v, s3_color, useBarIndex)
+
+            if sr_show_labels or sr_show_prices
+                mtf_draw_label(labelX, s3v, mtf_level_text(tag + ' S3', s3v, sr_show_labels, sr_show_prices), s3_color, useBarIndex)
+
+        if r4_show
+            mtf_draw_sr_line(x1, x2, r4v, r4_color, useBarIndex)
+
+            if sr_show_labels or sr_show_prices
+                mtf_draw_label(labelX, r4v, mtf_level_text(tag + ' R4', r4v, sr_show_labels, sr_show_prices), r4_color, useBarIndex)
+
+        if s4_show
+            mtf_draw_sr_line(x1, x2, s4v, s4_color, useBarIndex)
+
+            if sr_show_labels or sr_show_prices
+                mtf_draw_label(labelX, s4v, mtf_level_text(tag + ' S4', s4v, sr_show_labels, sr_show_prices), s4_color, useBarIndex)
+
+        if r5_show
+            mtf_draw_sr_line(x1, x2, r5v, r5_color, useBarIndex)
+
+            if sr_show_labels or sr_show_prices
+                mtf_draw_label(labelX, r5v, mtf_level_text(tag + ' R5', r5v, sr_show_labels, sr_show_prices), r5_color, useBarIndex)
+
+        if s5_show
+            mtf_draw_sr_line(x1, x2, s5v, s5_color, useBarIndex)
+
+            if sr_show_labels or sr_show_prices
+                mtf_draw_label(labelX, s5v, mtf_level_text(tag + ' S5', s5v, sr_show_labels, sr_show_prices), s5_color, useBarIndex)
+
+    // CPR ↔ R1 / S1 fills: pivLine, r1Line and s1Line stay na when the master is OFF, so these are skipped automatically
+    if fill_cpr_r1 and not na(pivLine) and not na(r1Line)
+        linefill.new(pivLine, r1Line, fill_cpr_r1_col)
+
+    if fill_cpr_s1 and not na(pivLine) and not na(s1Line)
+        linefill.new(pivLine, s1Line, fill_cpr_s1_col)
+
+    // Previous High/Low (PDH/PDL) — independent of pivot Type, hidden when the master is OFF
+    if cpr_pivot_master and show_day
+
+        pd_style = session_hl_line_style == 'Solid' ? line.style_solid : session_hl_line_style == 'Dashed' ? line.style_dashed : line.style_dotted
+
+        if not na(ph)
+            mtf_draw_hline(x1, x2, ph, session_high_color, pd_style, useBarIndex)
+
+            if pd_show_labels or pd_show_prices
+                mtf_draw_label(labelX, ph, mtf_level_text(tag + ' PH', ph, pd_show_labels, pd_show_prices), session_high_color, useBarIndex)
+
+        if not na(pl)
+            mtf_draw_hline(x1, x2, pl, session_low_color, pd_style, useBarIndex)
+
+            if pd_show_labels or pd_show_prices
+                mtf_draw_label(labelX, pl, mtf_level_text(tag + ' PL', pl, pd_show_labels, pd_show_prices), session_low_color, useBarIndex)
+
+// Daily/Weekly/Monthly historical period timestamps are taken directly from their own timeframe
+[d_t0, d_t1, d_t2, d_t3] = request.security(syminfo.tickerid, t_resDaily, [time, time[1], time[2], time[3]], lookahead = barmerge.lookahead_on)
+[w_t0, w_t1, w_t2, w_t3] = request.security(syminfo.tickerid, t_resWeekly, [time, time[1], time[2], time[3]], lookahead = barmerge.lookahead_on)
+[m_t0, m_t1, m_t2, m_t3] = request.security(syminfo.tickerid, t_resMonthly, [time, time[1], time[2], time[3]], lookahead = barmerge.lookahead_on)
+
+// Daily CPR source periods
+[d_h1, d_l1, d_c1] = request.security(syminfo.tickerid, t_resDaily, [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+[d_h2, d_l2, d_c2] = request.security(syminfo.tickerid, t_resDaily, [high[2], low[2], close[2]], lookahead = barmerge.lookahead_on)
+[d_h3, d_l3, d_c3] = request.security(syminfo.tickerid, t_resDaily, [high[3], low[3], close[3]], lookahead = barmerge.lookahead_on)
+
+[d_bc1, d_tc1, d_piv1] = t_getBounds(t_resDaily, d_h1, d_l1, d_c1)
+[d_bc2, d_tc2, d_piv2] = t_getBounds(t_resDaily, d_h2, d_l2, d_c2)
+[d_bc3, d_tc3, d_piv3] = t_getBounds(t_resDaily, d_h3, d_l3, d_c3)
+
+// Weekly CPR source periods
+[w_h1, w_l1, w_c1] = request.security(syminfo.tickerid, t_resWeekly, [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+[w_h2, w_l2, w_c2] = request.security(syminfo.tickerid, t_resWeekly, [high[2], low[2], close[2]], lookahead = barmerge.lookahead_on)
+[w_h3, w_l3, w_c3] = request.security(syminfo.tickerid, t_resWeekly, [high[3], low[3], close[3]], lookahead = barmerge.lookahead_on)
+
+[w_bc1, w_tc1, w_piv1] = t_getBounds(t_resWeekly, w_h1, w_l1, w_c1)
+[w_bc2, w_tc2, w_piv2] = t_getBounds(t_resWeekly, w_h2, w_l2, w_c2)
+[w_bc3, w_tc3, w_piv3] = t_getBounds(t_resWeekly, w_h3, w_l3, w_c3)
+
+// Monthly CPR source periods
+[m_h1, m_l1, m_c1] = request.security(syminfo.tickerid, t_resMonthly, [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+[m_h2, m_l2, m_c2] = request.security(syminfo.tickerid, t_resMonthly, [high[2], low[2], close[2]], lookahead = barmerge.lookahead_on)
+[m_h3, m_l3, m_c3] = request.security(syminfo.tickerid, t_resMonthly, [high[3], low[3], close[3]], lookahead = barmerge.lookahead_on)
+
+[m_bc1, m_tc1, m_piv1] = t_getBounds(t_resMonthly, m_h1, m_l1, m_c1)
+[m_bc2, m_tc2, m_piv2] = t_getBounds(t_resMonthly, m_h2, m_l2, m_c2)
+[m_bc3, m_tc3, m_piv3] = t_getBounds(t_resMonthly, m_h3, m_l3, m_c3)
+
+// Next Day CPR uses CURRENT Daily H/L/C
+[nd_h, nd_l, nd_c] = request.security(syminfo.tickerid, t_resDaily, [high, low, close], lookahead = barmerge.lookahead_on)
+[nd_bc, nd_tc, nd_piv] = t_getBounds(t_resDaily, nd_h, nd_l, nd_c)
+
+// Next Week
+[nw_h, nw_l, nw_c] = request.security(syminfo.tickerid, t_resWeekly, [high, low, close], lookahead = barmerge.lookahead_on)
+[nw_bc, nw_tc, nw_piv] = t_getBounds(t_resWeekly, nw_h, nw_l, nw_c)
+
+// Next Month
+[nm_h, nm_l, nm_c] = request.security(syminfo.tickerid, t_resMonthly, [high, low, close], lookahead = barmerge.lookahead_on)
+[nm_bc, nm_tc, nm_piv] = t_getBounds(t_resMonthly, nm_h, nm_l, nm_c)
+
+// ====================================================================
+// MTF DRAWING (old lines/labels are always cleared first; drawing only happens when CPR is the active indicator)
+// ====================================================================
+if barstate.islast
+
+    while array.size(mtf_lines) > 0
+        line.delete(array.shift(mtf_lines))
+
+    while array.size(mtf_labels) > 0
+        label.delete(array.shift(mtf_labels))
+
+    // Next Day/Week/Month are drawn with xloc.bar_index so they land on the next real trading session's bars
+    barsPerTradingDay = timeframe.isintraday ? math.max(math.round(375.0 / timeframe.multiplier), 1) : 1
+    barsPerTradingWeek = barsPerTradingDay * 5
+    barsPerTradingMonth = barsPerTradingDay * 21
+
+    // Pine cannot render xloc.bar_index drawings more than ~500 bars into the future, so the offset is clamped
+    MAX_FUTURE_OFFSET = 490
+
+    // ---------------- DAILY CPR HISTORY ----------------
+    if mtf_effDaily
+
+        d_pivs = array.from(d_piv1, d_piv2, d_piv3)
+        d_bcs = array.from(d_bc1, d_bc2, d_bc3)
+        d_tcs = array.from(d_tc1, d_tc2, d_tc3)
+
+        d_hs = array.from(d_h1, d_h2, d_h3)
+        d_ls = array.from(d_l1, d_l2, d_l3)
+        d_cs = array.from(d_c1, d_c2, d_c3)
+
+        d_times = array.from(d_t0, d_t1, d_t2, d_t3)
+
+        for k = 0 to mtf_hist_count - 1
+
+            if k == 0 or hist_sr_show
+
+                x1 = array.get(d_times, k)
+                x2 = k == 0 ? time_close(t_resDaily) : array.get(d_times, k - 1)
+
+                piv = array.get(d_pivs, k)
+                bc = array.get(d_bcs, k)
+                tc = array.get(d_tcs, k)
+
+                ph = array.get(d_hs, k)
+                pl = array.get(d_ls, k)
+                pc = array.get(d_cs, k)
+
+                [r1v, s1v, r2v, s2v, r3v, s3v, r4v, s4v, r5v, s5v] = calc_rs_levels(piv, ph, pl, pc)
+
+                if not na(x1) and not na(x2) and x2 > x1 and not na(piv)
+                    draw_mtf_period(k == 0 ? 'D' : 'D-' + str.tostring(k), x1, x2, piv, bc, tc, r1v, s1v, r2v, s2v, r3v, s3v, r4v, s4v, r5v, s5v, ph, pl, pc)
+
+    // ---------------- WEEKLY CPR HISTORY ----------------
+    if mtf_effWeekly
+
+        w_pivs = array.from(w_piv1, w_piv2, w_piv3)
+        w_bcs = array.from(w_bc1, w_bc2, w_bc3)
+        w_tcs = array.from(w_tc1, w_tc2, w_tc3)
+
+        w_hs = array.from(w_h1, w_h2, w_h3)
+        w_ls = array.from(w_l1, w_l2, w_l3)
+        w_cs = array.from(w_c1, w_c2, w_c3)
+
+        w_times = array.from(w_t0, w_t1, w_t2, w_t3)
+
+        for k = 0 to mtf_hist_count - 1
+
+            if k == 0 or hist_sr_show
+
+                x1 = array.get(w_times, k)
+                x2 = k == 0 ? time_close(t_resWeekly) : array.get(w_times, k - 1)
+
+                piv = array.get(w_pivs, k)
+                bc = array.get(w_bcs, k)
+                tc = array.get(w_tcs, k)
+
+                ph = array.get(w_hs, k)
+                pl = array.get(w_ls, k)
+                pc = array.get(w_cs, k)
+
+                [r1v, s1v, r2v, s2v, r3v, s3v, r4v, s4v, r5v, s5v] = calc_rs_levels(piv, ph, pl, pc)
+
+                if not na(x1) and not na(x2) and x2 > x1 and not na(piv)
+                    draw_mtf_period(k == 0 ? 'W' : 'W-' + str.tostring(k), x1, x2, piv, bc, tc, r1v, s1v, r2v, s2v, r3v, s3v, r4v, s4v, r5v, s5v, ph, pl, pc)
+
+    // ---------------- MONTHLY CPR HISTORY ----------------
+    if mtf_effMonthly
+
+        m_pivs = array.from(m_piv1, m_piv2, m_piv3)
+        m_bcs = array.from(m_bc1, m_bc2, m_bc3)
+        m_tcs = array.from(m_tc1, m_tc2, m_tc3)
+
+        m_hs = array.from(m_h1, m_h2, m_h3)
+        m_ls = array.from(m_l1, m_l2, m_l3)
+        m_cs = array.from(m_c1, m_c2, m_c3)
+
+        m_times = array.from(m_t0, m_t1, m_t2, m_t3)
+
+        for k = 0 to mtf_hist_count - 1
+
+            if k == 0 or hist_sr_show
+
+                x1 = array.get(m_times, k)
+                x2 = k == 0 ? time_close(t_resMonthly) : array.get(m_times, k - 1)
+
+                piv = array.get(m_pivs, k)
+                bc = array.get(m_bcs, k)
+                tc = array.get(m_tcs, k)
+
+                ph = array.get(m_hs, k)
+                pl = array.get(m_ls, k)
+                pc = array.get(m_cs, k)
+
+                [r1v, s1v, r2v, s2v, r3v, s3v, r4v, s4v, r5v, s5v] = calc_rs_levels(piv, ph, pl, pc)
+
+                if not na(x1) and not na(x2) and x2 > x1 and not na(piv)
+                    draw_mtf_period(k == 0 ? 'M' : 'M-' + str.tostring(k), x1, x2, piv, bc, tc, r1v, s1v, r2v, s2v, r3v, s3v, r4v, s4v, r5v, s5v, ph, pl, pc)
+
+    // ---------------- NEXT DAY CPR ----------------
+    if mtf_show_next_day and not na(nd_piv) and not na(nd_h) and not na(nd_l)
+
+        nd_x1 = bar_index + 1
+        nd_x2 = bar_index + 1 + math.min(barsPerTradingDay, MAX_FUTURE_OFFSET)
+
+        [ndr1, nds1, ndr2, nds2, ndr3, nds3, ndr4, nds4, ndr5, nds5] = calc_rs_levels(nd_piv, nd_h, nd_l, nd_c)
+
+        draw_mtf_period('N.Day', nd_x1, nd_x2, nd_piv, nd_bc, nd_tc, ndr1, nds1, ndr2, nds2, ndr3, nds3, ndr4, nds4, ndr5, nds5, nd_h, nd_l, nd_c, true)
+
+    // ---------------- NEXT WEEK CPR ----------------
+    if mtf_show_next_week and not na(nw_piv) and not na(nw_h) and not na(nw_l)
+
+        nw_x1 = bar_index + 1
+        nw_x2 = bar_index + 1 + math.min(barsPerTradingWeek, MAX_FUTURE_OFFSET)
+
+        [nwr1, nws1, nwr2, nws2, nwr3, nws3, nwr4, nws4, nwr5, nws5] = calc_rs_levels(nw_piv, nw_h, nw_l, nw_c)
+
+        draw_mtf_period('N.Week', nw_x1, nw_x2, nw_piv, nw_bc, nw_tc, nwr1, nws1, nwr2, nws2, nwr3, nws3, nwr4, nws4, nwr5, nws5, nw_h, nw_l, nw_c, true)
+
+    // ---------------- NEXT MONTH CPR ----------------
+    if mtf_show_next_month and not na(nm_piv) and not na(nm_h) and not na(nm_l)
+
+        nm_x1 = bar_index + 1
+        nm_x2 = bar_index + 1 + math.min(barsPerTradingMonth, MAX_FUTURE_OFFSET)
+
+        [nmr1, nms1, nmr2, nms2, nmr3, nms3, nmr4, nms4, nmr5, nms5] = calc_rs_levels(nm_piv, nm_h, nm_l, nm_c)
+
+        draw_mtf_period('N.Month', nm_x1, nm_x2, nm_piv, nm_bc, nm_tc, nmr1, nms1, nmr2, nms2, nmr3, nms3, nmr4, nms4, nmr5, nms5, nm_h, nm_l, nm_c, true)
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Multi Indicators — Bollinger Bands / Session VWAP
+// ──────────────────────────────────────────────────────────────────────────────
+string mi_grp_bb = 'Multi Indicators - Bollinger Bands'
+string mi_grp_vw = 'Multi Indicators - Session VWAP'
+
+mi_displayBB = input.bool(false, "Display Bollinger Bands?", group = mi_grp_bb)
+mi_displayVW = input.bool(true, "Display Session VWAP?", group = mi_grp_vw)
+
+mi_BBlength = input.int(20, minval = 1, title = "Bollinger Period Length", group = mi_grp_bb)
+mi_BBmult = input.float(2.0, minval = 0.001, maxval = 50, title = "BB Std Dev", group = mi_grp_bb)
+
+mi_src = input.source(close, "Source", group = mi_grp_bb)
+
+mi_BBbasis_color = input.color(color.orange, "Basis Line Color", group = mi_grp_bb)
+mi_BBupper_color = input.color(color.teal, "Upper Band Color", group = mi_grp_bb)
+mi_BBlower_color = input.color(color.teal, "Lower Band Color", group = mi_grp_bb)
+mi_BBfill_color = input.color(color.new(color.teal, 90), "Bands Fill Color", group = mi_grp_bb)
+
+mi_vwap_color = input.color(color.aqua, "VWAP Line Color", group = mi_grp_vw)
+mi_vwap_width = input.int(2, "VWAP Line Width", minval = 1, maxval = 10, group = mi_grp_vw)
+
+mi_vwapValue = vw_on and mi_displayVW ? ta.vwap(hlc3) : na
+
+plot(mi_vwapValue, "MI Session VWAP", color = mi_vwap_color, linewidth = mi_vwap_width, display = display.all - display.status_line)
+
+mi_BBbasis = bb_on and mi_displayBB ? ta.sma(mi_src, mi_BBlength) : na
+mi_BBdev = bb_on and mi_displayBB ? mi_BBmult * ta.stdev(mi_src, mi_BBlength) : na
+
+mi_BBupper = mi_BBbasis + mi_BBdev
+mi_BBlower = mi_BBbasis - mi_BBdev
+
+plot(mi_BBbasis, "MI BB Basis", color = mi_BBbasis_color, display = display.all - display.status_line)
+
+mi_p1 = plot(mi_BBupper, "MI BB Upper", color = mi_BBupper_color, display = display.all - display.status_line)
+mi_p2 = plot(mi_BBlower, "MI BB Lower", color = mi_BBlower_color, display = display.all - display.status_line)
+
+fill(mi_p1, mi_p2, color = bb_on ? mi_BBfill_color : color(na))
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Day-Open Anchored VWAP (resets at each trading day's open)
+// ──────────────────────────────────────────────────────────────────────────────
+group_dvwap = 'Day-Open Anchored VWAP'
+
+dvwap_show = input.bool(false, 'Show Day-Open VWAP', group = group_dvwap)
+dvwap_history_mode = input.string('Only Today', 'History Mode', options = ['All Days', 'Only Today'], group = group_dvwap, tooltip = 'All Days: plots VWAP for every trading day.\nOnly Today: draws VWAP only for the current session.')
+show_only_today = dvwap_history_mode == 'Only Today'
+
+dvwap_src = input.source(hlc3, 'Price (VWAP source)', group = group_dvwap)
+dvwap_col_above = input.color(color.new(color.teal, 0), 'Color when price ≥ VWAP', group = group_dvwap)
+dvwap_col_below = input.color(color.new(color.purple, 0), 'Color when price < VWAP', group = group_dvwap)
+dvwap_width = input.int(2, 'Line width', minval = 1, maxval = 5, group = group_dvwap)
+dvwap_show_label = input.bool(true, 'Show VWAP Label', group = group_dvwap)
+dvwap_mark_anchor = input.bool(true, 'Mark Day Open (anchor)', group = group_dvwap)
+
+is_intraday = timeframe.isintraday
+
+// Detect start of new trading day
+new_day = na(time_tradingday[1]) or (time_tradingday != time_tradingday[1])
+
+// Reset cumulative sums each new day
+var float _pv_sum = na
+var float _v_sum = na
+if is_intraday
+    if new_day or na(_pv_sum) or na(_v_sum)
+        _pv_sum := dvwap_src * volume
+        _v_sum := volume
+    else
+        _pv_sum += dvwap_src * volume
+        _v_sum += volume
+
+day_open_vwap = is_intraday and _v_sum > 0 ? _pv_sum / _v_sum : na
+dv_col = close >= day_open_vwap ? dvwap_col_above : dvwap_col_below
+
+plot(dv_on and dvwap_show and is_intraday and not show_only_today ? day_open_vwap : na, title = 'Day-Open VWAP (All Days)', color = dv_col, linewidth = dvwap_width, display = display.all - display.status_line)
+
+plotshape(dv_on and dvwap_mark_anchor and dvwap_show and is_intraday and new_day and not show_only_today, title = 'Day-Open VWAP Anchor', style = shape.triangleup, location = location.belowbar, size = size.tiny, color = color.new(dv_col, 0), display = display.all - display.status_line)
+
+// ── ONLY-TODAY VWAP LINES ──
+var line[] dv_lines = array.new_line()
+if dv_on and show_only_today and dvwap_show and is_intraday
+    if new_day and array.size(dv_lines) > 0
+        for i = 0 to array.size(dv_lines) - 1
+            line.delete(array.get(dv_lines, i))
+        array.clear(dv_lines)
+
+    is_same_session_as_prev = not new_day
+    if is_same_session_as_prev and not na(day_open_vwap) and not na(day_open_vwap[1])
+        l = line.new(x1 = time[1], y1 = day_open_vwap[1], x2 = time, y2 = day_open_vwap, xloc = xloc.bar_time, extend = extend.none, color = dv_col, width = dvwap_width)
+        array.push(dv_lines, l)
+else if not dv_on and array.size(dv_lines) > 0
+    for i = 0 to array.size(dv_lines) - 1
+        line.delete(array.get(dv_lines, i))
+    array.clear(dv_lines)
+
+// ── LABELS ──
+var label dvwap_lbl = na
+if barstate.islast and dv_on and dvwap_show and dvwap_show_label and is_intraday and not na(day_open_vwap)
+    label.delete(dvwap_lbl)
+    rounded_vwap = math.ceil(day_open_vwap / syminfo.mintick) * syminfo.mintick
+    dvwap_lbl := label.new(x = time, y = day_open_vwap, xloc = xloc.bar_time, text = str.format('                                VWAP AA - {0}', rounded_vwap), textcolor = dv_col, style = label.style_none, color = color.new(color.black, 100))
+else if barstate.islast and not dv_on
+    label.delete(dvwap_lbl)
+
+var label dvwap_anchor_lbl = na
+if dv_on and dvwap_mark_anchor and show_only_today and dvwap_show and is_intraday and new_day
+    label.delete(dvwap_anchor_lbl)
+    dvwap_anchor_lbl := label.new(x = time, y = low, xloc = xloc.bar_time, text = '▲', textcolor = dv_col, style = label.style_label_up, color = color.new(color.black, 100))
+else if not dv_on
+    label.delete(dvwap_anchor_lbl)
+
+// ──────────────────────────────────────────────────────────────────────────────
+// UT Bot
+// ──────────────────────────────────────────────────────────────────────────────
+string ut_grp_buy = 'UT Bot - Buy Settings'
+string ut_grp_sell = 'UT Bot - Sell Settings'
+
+ut_show = input.bool(true, 'Show UT Bot Signals', group = 'UT Bot')
+ut_src = close
+ut_buyKeyValue = input.float(2, title = 'Buy: Key Value (Sensitivity)', step = 0.5, group = ut_grp_buy)
+ut_buyATRPeriod = input.int(300, title = 'Buy: ATR Period', group = ut_grp_buy)
+
+ut_sellKeyValue = input.float(2, title = 'Sell: Key Value (Sensitivity)', step = 0.5, group = ut_grp_sell)
+ut_sellATRPeriod = input.int(1, title = 'Sell: ATR Period', group = ut_grp_sell)
+
+ut_xATRBuy = ta.atr(ut_buyATRPeriod)
+ut_nLossBuy = ut_buyKeyValue * ut_xATRBuy
+
+ut_xATRTrailingStopBuy = 0.0
+ut_xATRTrailingStopBuy :=
+     ut_src > nz(ut_xATRTrailingStopBuy[1], 0) and
+     ut_src[1] > nz(ut_xATRTrailingStopBuy[1], 0) ?
+         math.max(nz(ut_xATRTrailingStopBuy[1]), ut_src - ut_nLossBuy) :
+     ut_src < nz(ut_xATRTrailingStopBuy[1], 0) and
+     ut_src[1] < nz(ut_xATRTrailingStopBuy[1], 0) ?
+         math.min(nz(ut_xATRTrailingStopBuy[1]), ut_src + ut_nLossBuy) :
+     ut_src > nz(ut_xATRTrailingStopBuy[1], 0) ?
+         ut_src - ut_nLossBuy :
+         ut_src + ut_nLossBuy
+
+ut_xATRSell = ta.atr(ut_sellATRPeriod)
+ut_nLossSell = ut_sellKeyValue * ut_xATRSell
+
+ut_xATRTrailingStopSell = 0.0
+
+ut_xATRTrailingStopSell :=
+     ut_src > nz(ut_xATRTrailingStopSell[1], 0) and
+     ut_src[1] > nz(ut_xATRTrailingStopSell[1], 0) ?
+         math.max(nz(ut_xATRTrailingStopSell[1]), ut_src - ut_nLossSell) :
+     ut_src < nz(ut_xATRTrailingStopSell[1], 0) and
+     ut_src[1] < nz(ut_xATRTrailingStopSell[1], 0) ?
+         math.min(nz(ut_xATRTrailingStopSell[1]), ut_src + ut_nLossSell) :
+     ut_src > nz(ut_xATRTrailingStopSell[1], 0) ?
+         ut_src - ut_nLossSell :
+         ut_src + ut_nLossSell
+
+ut_pos = 0
+
+ut_pos :=
+     ut_src[1] < nz(ut_xATRTrailingStopBuy[1], 0) and
+     ut_src > nz(ut_xATRTrailingStopBuy[1], 0) ? 1 :
+     ut_src[1] > nz(ut_xATRTrailingStopSell[1], 0) and
+     ut_src < nz(ut_xATRTrailingStopSell[1], 0) ? -1 :
+     nz(ut_pos[1], 0)
+
+ut_xcolor = ut_pos == -1 ? color.red : ut_pos == 1 ? color.green : color.blue
+
+ut_buy = ta.crossover(ut_src, ut_xATRTrailingStopBuy)
+ut_sell = ta.crossunder(ut_src, ut_xATRTrailingStopSell)
+
+ut_isBullBar = ut_src > ut_xATRTrailingStopBuy
+
+plotshape(ut_on and ut_show and ut_buy, title = 'UT Bot Buy', text = 'Buy', style = shape.labelup, location = location.belowbar, color = color.new(color.green, 0), textcolor = color.white, size = size.tiny, display = display.all - display.status_line)
+
+plotshape(ut_on and ut_show and ut_sell, title = 'UT Bot Sell', text = 'Sell', style = shape.labeldown, location = location.abovebar, color = color.new(color.red, 0), textcolor = color.white, size = size.tiny, display = display.all - display.status_line)
+
+alertcondition(alerts_on and ut_on and ut_buy, title = 'UT BOT Buy', message = 'UT BOT Buy')
+alertcondition(alerts_on and ut_on and ut_sell, title = 'UT BOT Sell', message = 'UT BOT Sell')
+
+// ──────────────────────────────────────────────
+// CPR LOCATION / WIDTH / TYPE ALERTS
+// alert() based (does not count toward the 64 plot limit); fires when the state changes
+// Create the TradingView alert with Condition = this indicator and Any alert() function call
+// Each event can be switched on/off in the "Alert Filters" input group
+// ──────────────────────────────────────────────
+cpr_locM_chg = t_locM != t_locM[1]
+cpr_locW_chg = t_locW != t_locW[1]
+cpr_locD_chg = t_locD != t_locD[1]
+cpr_width_chg = t_widthLabel != t_widthLabel[1]
+cpr_type_chg = t_typeLabel != t_typeLabel[1]
+
+// same wording the old alertcondition() messages used
+cpr_type_msg =
+     t_typeLabel == 'Asc Rev' ? 'ASCENDING REVERSAL' :
+     t_typeLabel == 'Desc Rev' ? 'DESCENDING REVERSAL' :
+     t_typeLabel == 'Inside' ? 'INSIDE CPR' :
+     t_typeLabel == 'Outside' ? 'OUTSIDE CPR' :
+     str.upper(t_typeLabel)
+
+if alerts_on and alert_cpr_state and af_locM and cpr_locM_chg
+    alert('Price is ' + str.upper(t_locM) + ' the Monthly CPR', alert_frequency)
+if alerts_on and alert_cpr_state and af_locW and cpr_locW_chg
+    alert('Price is ' + str.upper(t_locW) + ' the Weekly CPR', alert_frequency)
+if alerts_on and alert_cpr_state and af_locD and cpr_locD_chg
+    alert('Price is ' + str.upper(t_locD) + ' the Daily CPR', alert_frequency)
+if alerts_on and alert_cpr_state and af_width and cpr_width_chg
+    alert('Daily CPR width is ' + str.upper(t_widthLabel), alert_frequency)
+if alerts_on and alert_cpr_state and af_type and cpr_type_chg
+    alert('Daily CPR type: ' + cpr_type_msg, alert_frequency)
+
+// ──────────────────────────────────────────────
+// MASTER ALERTS – one alert for all CPR + Multi signals
+// ──────────────────────────────────────────────
+master_bull_signal = alerts_on and ((ma_on and (ma_cross_12_up or ma_cross_23_up or ma_cross_34_up or ma_cross_35_up or ma_cross_45_up)) or (ut_on and ut_buy))
+master_bear_signal = alerts_on and ((ma_on and (ma_cross_12_down or ma_cross_23_down or ma_cross_34_down or ma_cross_35_down or ma_cross_45_down)) or (ut_on and ut_sell))
+master_any_signal = master_bull_signal or master_bear_signal
+
+alertcondition(master_any_signal, title = 'MASTER ALERT – Any Signal', message = 'CPR + Multi: a signal fired (MA cross / UT Bot)')
+alertcondition(master_bull_signal, title = 'MASTER ALERT – Any Bullish Signal', message = 'CPR + Multi: BULLISH signal (MA bullish cross / UT Bot Buy)')
+alertcondition(master_bear_signal, title = 'MASTER ALERT – Any Bearish Signal', message = 'CPR + Multi: BEARISH signal (MA bearish cross / UT Bot Sell)')
+
+//══════════════════════════════════════════════════════════════════════════════════════════════
+// PART 2 — SMC CONCEPTS  (everything below is gated by smc_on / smc_f_on)
+//══════════════════════════════════════════════════════════════════════════════════════════════
+BULLISH_LEG = 1
+BEARISH_LEG = 0
+
+BULLISH = +1
+BEARISH = -1
+
+GREEN = #089981
+RED = #F23645
+BLUE = #2157f3
+GRAY = #878b94
+MONO_BULLISH = #b2b5be
+MONO_BEARISH = #5d606b
+
+HISTORICAL = 'Historical'
+PRESENT = 'Present'
+
+COLORED = 'Colored'
+MONOCHROME = 'Monochrome'
+
+ALL = 'All'
+BOS = 'BOS'
+CHOCH = 'CHoCH'
+
+TINY = size.tiny
+SMALL = size.small
+NORMAL = size.normal
+
+ATR = 'Atr'
+RANGE = 'Cumulative Mean Range'
+
+CLOSE = 'Close'
+HIGHLOW = 'High/Low'
+
+SOLID = '⎯⎯⎯'
+DASHED = '----'
+DOTTED = '····'
+
+SMART_GROUP = 'SMC | Smart Money Concepts'
+INTERNAL_GROUP = 'SMC | Real Time Internal Structure'
+SWING_GROUP = 'SMC | Real Time Swing Structure'
+BLOCKS_GROUP = 'SMC | Order Blocks'
+EQUAL_GROUP = 'SMC | EQH/EQL'
+GAPS_GROUP = 'SMC | Fair Value Gaps'
+LEVELS_GROUP = 'SMC | Previous Highs & Lows MTF'
+ZONES_GROUP = 'SMC | Premium & Discount Zones'
+HTF_GROUP = 'SMC | HTF Fair Value Gaps'
+HTFOB_GROUP = 'SMC | HTF Order Blocks'
+BB_GROUP = 'SMC | Breaker Blocks'
+
+modeTooltip = 'Allows to display historical Structure or only the recent ones'
+styleTooltip = 'Indicator color theme'
+showTrendTooltip = 'Display additional candles with a color reflecting the current trend detected by structure'
+showInternalsTooltip = 'Display internal market structure'
+internalFilterConfluenceTooltip = 'Filter non significant internal structure breakouts'
+showStructureTooltip = 'Display swing market Structure'
+showSwingsTooltip = 'Display swing point as labels on the chart'
+showHighLowSwingsTooltip = 'Highlight most recent strong and weak high/low points on the chart'
+highLowLabelSizeTooltip = 'Text size of the Strong/Weak High/Low labels (tiny, small or normal)'
+showInternalOrderBlocksTooltip = 'Display internal order blocks on the chart\n\nNumber of internal order blocks to display on the chart'
+showSwingOrderBlocksTooltip = 'Display swing order blocks on the chart\n\nNumber of internal swing blocks to display on the chart'
+orderBlockFilterTooltip = 'Method used to filter out volatile order blocks \n\nIt is recommended to use the cumulative mean range method when a low amount of data is available'
+orderBlockMitigationTooltip = 'Select what values to use for order block mitigation'
+showObLabelsTooltip = 'Show a Bull OB / Bear OB label for each non mitigated order block. The text color follows the OB color, and the label sits at the current candle, in the middle of the block'
+obLabelSizeTooltip = 'Text size of the Bull OB / Bear OB labels (tiny, small or normal)'
+showEqualHighsLowsTooltip = 'Display equal highs and equal lows on the chart'
+equalHighsLowsLengthTooltip = 'Number of bars used to confirm equal highs and equal lows'
+equalHighsLowsThresholdTooltip = 'Sensitivity threshold in a range (0, 1) used for the detection of equal highs & lows\n\nLower values will return fewer but more pertinent results'
+showFairValueGapsTooltip = 'Display fair values gaps on the chart'
+fairValueGapsThresholdTooltip = 'Filter out non significant fair value gaps'
+fairValueGapsTimeframeTooltip = 'Fair value gaps timeframe'
+fairValueGapsExtendTooltip = 'Determine how many bars to extend the Fair Value Gap boxes on chart'
+showFvgStyleTooltip = 'ON: every non mitigated FVG box is extended to the current candle.\nOFF: FVG boxes are drawn the classic way (short boxes)'
+showPremiumDiscountZonesTooltip = 'Display premium, discount, and equilibrium zones on chart'
+showZoneLabelsTooltip = 'Show the Premium / Equilibrium / Discount text label for each displayed zone. The text color follows the zone color. Turn off to show only the colored zone boxes'
+zoneLabelSizeTooltip = 'Text size of the Premium / Equilibrium / Discount labels (tiny, small or normal). The Equilibrium label is centered inside its box'
+htfDeleteTooltip = 'Remove an HTF FVG once price trades through it. If off, the box stops extending at the mitigation bar'
+htfExtendTooltip = 'Extend unmitigated HTF FVG boxes to the right. The text label follows the current candle while the FVG is not mitigated'
+htfMaxTooltip = 'Maximum number of HTF FVG boxes kept per higher timeframe'
+htfTextSizeTooltip = 'Text size of the HTF FVG labels (tiny, small or normal)'
+htfObDeleteTooltip = 'Remove an HTF order block once price trades through it (uses the Order Block Mitigation setting). If off, the box stops extending at the mitigation bar'
+htfObExtendTooltip = 'Extend unmitigated HTF order blocks to the right. The text label follows the current candle while the OB is not mitigated'
+htfObMaxTooltip = 'Maximum number of HTF order blocks kept per higher timeframe'
+htfObTextSizeTooltip = 'Text size of the HTF OB labels (tiny, small or normal)'
+htfObImpulseTooltip = 'Minimum body size of the breakout candle, as a multiple of the HTF ATR(14). A bullish HTF OB is the last bearish candle before a bullish candle that closes above its high (bearish is the mirror). Set to 0 to disable the filter'
+levelsTooltip = 'Plots the high and low of the previous completed Day / Week / Month as horizontal lines (PDH/PDL, PWH/PWL, PMH/PML)'
+historyBufferTooltip = 'Caps how many bars of raw OHLC/time history are kept in memory for order block detection and MTF level lookups. Lower values use less memory and run faster; raise it only if you use Weekly/Monthly levels on a low timeframe chart and notice levels not drawing, or order blocks that take a very long time to break not forming correctly.'
+bbTagTooltip = 'Show a Bull BB / Bear BB label for each displayed breaker block. The text color follows the breaker zone color, and the label sits at the current candle, in the middle of the zone'
+bbTagSizeTooltip = 'Text size of the Bull BB / Bear BB labels (tiny, small or normal)'
+
+modeInput = input.string(HISTORICAL, 'Mode', group = SMART_GROUP, tooltip = modeTooltip, options = [HISTORICAL, PRESENT], display = display.none)
+styleInput = input.string(COLORED, 'Style', group = SMART_GROUP, tooltip = styleTooltip, options = [COLORED, MONOCHROME], display = display.none)
+showTrendInputRaw = input(false, 'Color Candles', group = SMART_GROUP, tooltip = showTrendTooltip, display = display.none)
+historyBufferInput = input.int(5000, 'Max History Buffer (bars)', group = SMART_GROUP, minval = 500, maxval = 20000, tooltip = historyBufferTooltip, display = display.none)
+
+showInternalsInputRaw = input(true, 'Show Internal Structure', group = INTERNAL_GROUP, tooltip = showInternalsTooltip, display = display.none)
+showInternalBullInput = input.string(ALL, 'Bullish Structure', group = INTERNAL_GROUP, inline = 'ibull', options = [ALL, BOS, CHOCH], display = display.none)
+internalBullColorInput = input(GREEN, '', group = INTERNAL_GROUP, inline = 'ibull', display = display.none)
+showInternalBearInput = input.string(ALL, 'Bearish Structure', group = INTERNAL_GROUP, inline = 'ibear', options = [ALL, BOS, CHOCH], display = display.none)
+internalBearColorInput = input(RED, '', group = INTERNAL_GROUP, inline = 'ibear', display = display.none)
+internalFilterConfluenceInput = input(false, 'Confluence Filter', group = INTERNAL_GROUP, tooltip = internalFilterConfluenceTooltip, display = display.none)
+internalStructureLengthInput = input.int(5, 'Internal Lookback', group = INTERNAL_GROUP, minval = 1, display = display.none)
+internalStructureSize = input.string(TINY, 'Internal Label Size', group = INTERNAL_GROUP, options = [TINY, SMALL, NORMAL], display = display.none)
+
+showStructureInputRaw = input(true, 'Show Swing Structure', group = SWING_GROUP, tooltip = showStructureTooltip, display = display.none)
+showSwingBullInput = input.string(ALL, 'Bullish Structure', group = SWING_GROUP, inline = 'bull', options = [ALL, BOS, CHOCH], display = display.none)
+swingBullColorInput = input(GREEN, '', group = SWING_GROUP, inline = 'bull', display = display.none)
+showSwingBearInput = input.string(ALL, 'Bearish Structure', group = SWING_GROUP, inline = 'bear', options = [ALL, BOS, CHOCH], display = display.none)
+swingBearColorInput = input(RED, '', group = SWING_GROUP, inline = 'bear', display = display.none)
+swingStructureSize = input.string(SMALL, 'Swing Label Size', group = SWING_GROUP, options = [TINY, SMALL, NORMAL], display = display.none)
+showSwingsInputRaw = input(false, 'Show Swings Points', group = SWING_GROUP, tooltip = showSwingsTooltip, inline = 'swings', display = display.none)
+swingsLengthInput = input.int(50, '', group = SWING_GROUP, minval = 10, inline = 'swings', display = display.none)
+showHighLowSwingsInputRaw = input(true, 'Show Strong/Weak High/Low', group = SWING_GROUP, tooltip = showHighLowSwingsTooltip, display = display.none)
+highLowLabelSizeInput = input.string(TINY, 'Strong/Weak High/Low Label Size', group = SWING_GROUP, tooltip = highLowLabelSizeTooltip, options = [TINY, SMALL, NORMAL], display = display.none)
+
+showInternalOrderBlocksInputRaw = input(true, 'Internal Order Blocks', group = BLOCKS_GROUP, tooltip = showInternalOrderBlocksTooltip, inline = 'iob', display = display.none)
+internalOrderBlocksSizeInput = input.int(5, '', group = BLOCKS_GROUP, minval = 1, maxval = 20, inline = 'iob', display = display.none)
+showInternalBullishOBInput = input.bool(true, 'Bullish', group = BLOCKS_GROUP, inline = 'iobbias', display = display.none)
+showInternalBearishOBInput = input.bool(true, 'Bearish', group = BLOCKS_GROUP, inline = 'iobbias', display = display.none)
+showSwingOrderBlocksInputRaw = input(false, 'Swing Order Blocks', group = BLOCKS_GROUP, tooltip = showSwingOrderBlocksTooltip, inline = 'ob', display = display.none)
+swingOrderBlocksSizeInput = input.int(5, '', group = BLOCKS_GROUP, minval = 1, maxval = 20, inline = 'ob', display = display.none)
+showSwingBullishOBInput = input.bool(true, 'Bullish', group = BLOCKS_GROUP, inline = 'obbias', display = display.none)
+showSwingBearishOBInput = input.bool(true, 'Bearish', group = BLOCKS_GROUP, inline = 'obbias', display = display.none)
+orderBlockFilterInput = input.string('Atr', 'Order Block Filter', group = BLOCKS_GROUP, tooltip = orderBlockFilterTooltip, options = [ATR, RANGE], display = display.none)
+orderBlockMitigationInput = input.string(HIGHLOW, 'Order Block Mitigation', group = BLOCKS_GROUP, tooltip = orderBlockMitigationTooltip, options = [CLOSE, HIGHLOW], display = display.none)
+internalBullishOrderBlockColor = input.color(color.new(#3179f5, 80), 'Internal Bullish OB', group = BLOCKS_GROUP, display = display.none)
+internalBearishOrderBlockColor = input.color(color.new(#f77c80, 80), 'Internal Bearish OB', group = BLOCKS_GROUP, display = display.none)
+swingBullishOrderBlockColor = input.color(color.new(#1848cc, 80), 'Bullish OB', group = BLOCKS_GROUP, display = display.none)
+swingBearishOrderBlockColor = input.color(color.new(#b22833, 80), 'Bearish OB', group = BLOCKS_GROUP, display = display.none)
+showObLabelsInput = input.bool(true, 'Show OB Labels', group = BLOCKS_GROUP, tooltip = showObLabelsTooltip, display = display.none)
+obLabelSizeInput = input.string(TINY, 'OB Label Size', group = BLOCKS_GROUP, tooltip = obLabelSizeTooltip, options = [TINY, SMALL, NORMAL], display = display.none)
+
+showEqualHighsLowsInputRaw = input(true, 'Equal High/Low', group = EQUAL_GROUP, tooltip = showEqualHighsLowsTooltip, display = display.none)
+equalHighsLowsLengthInput = input.int(3, 'Bars Confirmation', group = EQUAL_GROUP, tooltip = equalHighsLowsLengthTooltip, minval = 1, display = display.none)
+equalHighsLowsThresholdInput = input.float(0.1, 'Threshold', group = EQUAL_GROUP, tooltip = equalHighsLowsThresholdTooltip, minval = 0, maxval = 0.5, step = 0.1, display = display.none)
+equalHighsLowsSizeInput = input.string(TINY, 'Label Size', group = EQUAL_GROUP, options = [TINY, SMALL, NORMAL], display = display.none)
+
+showFairValueGapsInputRaw = input(false, 'Fair Value Gaps', group = GAPS_GROUP, tooltip = showFairValueGapsTooltip, display = display.none)
+showBullishFVGInput = input.bool(true, 'Show Bullish FVG', group = GAPS_GROUP, inline = 'fvgbias', display = display.none)
+showBearishFVGInput = input.bool(true, 'Show Bearish FVG', group = GAPS_GROUP, inline = 'fvgbias', display = display.none)
+fairValueGapsThresholdInput = input(true, 'Auto Threshold', group = GAPS_GROUP, tooltip = fairValueGapsThresholdTooltip, display = display.none)
+fairValueGapsTimeframeInput = input.timeframe('', 'Timeframe', group = GAPS_GROUP, tooltip = fairValueGapsTimeframeTooltip, display = display.none)
+fairValueGapsBullColorInput = input.color(color.new(#00ff68, 70), 'Bullish FVG', group = GAPS_GROUP, display = display.none)
+fairValueGapsBearColorInput = input.color(color.new(#ff0008, 70), 'Bearish FVG', group = GAPS_GROUP, display = display.none)
+fairValueGapsExtendInput = input.int(1, 'Extend FVG', group = GAPS_GROUP, tooltip = fairValueGapsExtendTooltip, minval = 0, display = display.none)
+showFvgStyleInput = input.bool(true, 'Extend FVG to Current Bar', group = GAPS_GROUP, tooltip = showFvgStyleTooltip, display = display.none)
+
+// HTF FVG inputs
+showHTF1InputRaw = input.bool(true, 'Show', group = HTF_GROUP, inline = 'htf1', display = display.none)
+htf1Input = input.timeframe('60', 'HTF FVG 1', group = HTF_GROUP, inline = 'htf1', display = display.none)
+showHtf1BullFVGInput = input.bool(true, 'Bullish', group = HTF_GROUP, inline = 'htf1bias', display = display.none)
+showHtf1BearFVGInput = input.bool(true, 'Bearish', group = HTF_GROUP, inline = 'htf1bias', display = display.none)
+showHTF2InputRaw = input.bool(false, 'Show', group = HTF_GROUP, inline = 'htf2', display = display.none)
+htf2Input = input.timeframe('240', 'HTF FVG 2', group = HTF_GROUP, inline = 'htf2', display = display.none)
+showHtf2BullFVGInput = input.bool(true, 'Bullish', group = HTF_GROUP, inline = 'htf2bias', display = display.none)
+showHtf2BearFVGInput = input.bool(true, 'Bearish', group = HTF_GROUP, inline = 'htf2bias', display = display.none)
+
+htf1BullBorderInput = input.color(color.new(#089981, 40), 'HTF1 | BORDER: Bullish', group = HTF_GROUP, inline = 'h1b', display = display.none)
+htf1BearBorderInput = input.color(color.new(#F23645, 40), 'Bearish', group = HTF_GROUP, inline = 'h1b', display = display.none)
+htf1BullBoxInput = input.color(color.new(#089981, 85), 'HTF1 | BOX: Bullish', group = HTF_GROUP, inline = 'h1x', display = display.none)
+htf1BearBoxInput = input.color(color.new(#F23645, 85), 'Bearish', group = HTF_GROUP, inline = 'h1x', display = display.none)
+htf2BullBorderInput = input.color(color.new(#878b94, 40), 'HTF2 | BORDER: Bullish', group = HTF_GROUP, inline = 'h2b', display = display.none)
+htf2BearBorderInput = input.color(color.new(#ff9800, 40), 'Bearish', group = HTF_GROUP, inline = 'h2b', display = display.none)
+htf2BullBoxInput = input.color(color.new(#2157f3, 85), 'HTF2 | BOX: Bullish', group = HTF_GROUP, inline = 'h2x', display = display.none)
+htf2BearBoxInput = input.color(color.new(#ff9800, 85), 'Bearish', group = HTF_GROUP, inline = 'h2x', display = display.none)
+
+htfDeleteMitigatedInput = input.bool(true, 'Delete Mitigated HTF FVG', group = HTF_GROUP, tooltip = htfDeleteTooltip, display = display.none)
+htfExtendInput = input.bool(true, 'Extend HTF FVG', group = HTF_GROUP, tooltip = htfExtendTooltip, display = display.none)
+htfShowTextInput = input.bool(true, 'Show HTF FVG Labels', group = HTF_GROUP, display = display.none)
+htfTextSizeInput = input.string(TINY, 'HTF FVG Label Size', group = HTF_GROUP, tooltip = htfTextSizeTooltip, options = [TINY, SMALL, NORMAL], display = display.none)
+htfMaxInput = input.int(5, 'Max HTF FVGs per timeframe', group = HTF_GROUP, minval = 1, maxval = 100, tooltip = htfMaxTooltip, display = display.none)
+
+// HTF OB inputs
+showHTFOb1InputRaw = input.bool(true, 'Show', group = HTFOB_GROUP, inline = 'ob1', display = display.none)
+htfOb1Input = input.timeframe('60', 'HTF OB 1', group = HTFOB_GROUP, inline = 'ob1', display = display.none)
+showHtfOb1BullInput = input.bool(true, 'Bullish', group = HTFOB_GROUP, inline = 'ob1bias', display = display.none)
+showHtfOb1BearInput = input.bool(true, 'Bearish', group = HTFOB_GROUP, inline = 'ob1bias', display = display.none)
+showHTFOb2InputRaw = input.bool(false, 'Show', group = HTFOB_GROUP, inline = 'ob2', display = display.none)
+htfOb2Input = input.timeframe('240', 'HTF OB 2', group = HTFOB_GROUP, inline = 'ob2', display = display.none)
+showHtfOb2BullInput = input.bool(true, 'Bullish', group = HTFOB_GROUP, inline = 'ob2bias', display = display.none)
+showHtfOb2BearInput = input.bool(true, 'Bearish', group = HTFOB_GROUP, inline = 'ob2bias', display = display.none)
+
+htfOb1BullBorderInput = input.color(color.new(#3179f5, 30), 'HTF1 | BORDER: Bullish', group = HTFOB_GROUP, inline = 'o1b', display = display.none)
+htfOb1BearBorderInput = input.color(color.new(#f77c80, 30), 'Bearish', group = HTFOB_GROUP, inline = 'o1b', display = display.none)
+htfOb1BullBoxInput = input.color(color.new(#3179f5, 85), 'HTF1 | BOX: Bullish', group = HTFOB_GROUP, inline = 'o1x', display = display.none)
+htfOb1BearBoxInput = input.color(color.new(#f77c80, 85), 'Bearish', group = HTFOB_GROUP, inline = 'o1x', display = display.none)
+htfOb2BullBorderInput = input.color(color.new(#00bcd4, 30), 'HTF2 | BORDER: Bullish', group = HTFOB_GROUP, inline = 'o2b', display = display.none)
+htfOb2BearBorderInput = input.color(color.new(#9c27b0, 30), 'Bearish', group = HTFOB_GROUP, inline = 'o2b', display = display.none)
+htfOb2BullBoxInput = input.color(color.new(#00bcd4, 85), 'HTF2 | BOX: Bullish', group = HTFOB_GROUP, inline = 'o2x', display = display.none)
+htfOb2BearBoxInput = input.color(color.new(#9c27b0, 85), 'Bearish', group = HTFOB_GROUP, inline = 'o2x', display = display.none)
+
+htfObDeleteMitigatedInput = input.bool(true, 'Delete Mitigated HTF OB', group = HTFOB_GROUP, tooltip = htfObDeleteTooltip, display = display.none)
+htfObExtendInput = input.bool(true, 'Extend HTF OB', group = HTFOB_GROUP, tooltip = htfObExtendTooltip, display = display.none)
+htfObShowTextInput = input.bool(true, 'Show HTF OB Labels', group = HTFOB_GROUP, display = display.none)
+htfObTextSizeInput = input.string(TINY, 'HTF OB Label Size', group = HTFOB_GROUP, tooltip = htfObTextSizeTooltip, options = [TINY, SMALL, NORMAL], display = display.none)
+htfObMaxInput = input.int(5, 'Max HTF OBs per timeframe', group = HTFOB_GROUP, minval = 1, maxval = 100, tooltip = htfObMaxTooltip, display = display.none)
+htfObImpulseInput = input.float(1.0, 'HTF OB Impulse (x ATR)', group = HTFOB_GROUP, minval = 0, step = 0.1, tooltip = htfObImpulseTooltip, display = display.none)
+
+showDailyLevelsInputRaw = input(false, 'Previous Day', group = LEVELS_GROUP, inline = 'daily', tooltip = levelsTooltip, display = display.none)
+dailyLevelsStyleInput = input.string(SOLID, '', group = LEVELS_GROUP, inline = 'daily', options = [SOLID, DASHED, DOTTED], display = display.none)
+dailyLevelsColorInput = input(BLUE, '', group = LEVELS_GROUP, inline = 'daily', display = display.none)
+showWeeklyLevelsInputRaw = input(false, 'Previous Week', group = LEVELS_GROUP, inline = 'weekly', display = display.none)
+weeklyLevelsStyleInput = input.string(SOLID, '', group = LEVELS_GROUP, inline = 'weekly', options = [SOLID, DASHED, DOTTED], display = display.none)
+weeklyLevelsColorInput = input(BLUE, '', group = LEVELS_GROUP, inline = 'weekly', display = display.none)
+showMonthlyLevelsInputRaw = input(false, 'Previous Month', group = LEVELS_GROUP, inline = 'monthly', display = display.none)
+monthlyLevelsStyleInput = input.string(SOLID, '', group = LEVELS_GROUP, inline = 'monthly', options = [SOLID, DASHED, DOTTED], display = display.none)
+monthlyLevelsColorInput = input(BLUE, '', group = LEVELS_GROUP, inline = 'monthly', display = display.none)
+
+showPremiumDiscountZonesInputRaw = input(false, 'Premium/Discount Zones', group = ZONES_GROUP, tooltip = showPremiumDiscountZonesTooltip, display = display.none)
+showPremiumZoneInput = input.bool(true, 'Premium', group = ZONES_GROUP, inline = 'zonebias', display = display.none)
+showEquilibriumZoneInput = input.bool(true, 'Equilibrium', group = ZONES_GROUP, inline = 'zonebias', display = display.none)
+showDiscountZoneInput = input.bool(true, 'Discount', group = ZONES_GROUP, inline = 'zonebias', display = display.none)
+premiumZoneColorInput = input.color(RED, 'Premium Zone', group = ZONES_GROUP, display = display.none)
+equilibriumZoneColorInput = input.color(GRAY, 'Equilibrium Zone', group = ZONES_GROUP, display = display.none)
+discountZoneColorInput = input.color(GREEN, 'Discount Zone', group = ZONES_GROUP, display = display.none)
+showZoneLabelsInput = input.bool(true, 'Show Zone Labels', group = ZONES_GROUP, tooltip = showZoneLabelsTooltip, display = display.none)
+zoneLabelSizeInput = input.string(SMALL, 'Zone Label Size', group = ZONES_GROUP, tooltip = zoneLabelSizeTooltip, options = [TINY, SMALL, NORMAL], display = display.none)
+
+// Breaker Blocks inputs
+bbShowInputRaw = input.bool(true, 'Show Breaker Blocks', group = BB_GROUP, display = display.none)
+bbLengthSourceInput = input.string('Custom', 'Swing Length Source', group = BB_GROUP, options = ['Custom', 'Swing Structure', 'Internal Structure'], tooltip = 'Choose which lookback the Breaker Blocks use.\n\nCustom uses the Swing Lookback (Custom) value.\n\nSwing Structure uses the Swing Structure Length value below.\n\nInternal Structure uses the Internal Structure Length value below.\n\nAll three values are entered manually here and are independent of the Real Time Swing / Internal Structure settings.', display = display.none)
+bbLengthInput = input.int(10, 'Swing Lookback (Custom)', group = BB_GROUP, minval = 3, display = display.none)
+bbSwingLengthInput = input.int(50, 'Swing Structure Length', group = BB_GROUP, minval = 3, display = display.none)
+bbInternalLengthInput = input.int(5, 'Internal Structure Length', group = BB_GROUP, minval = 3, display = display.none)
+bbShowBullInput = input.int(3, 'Show Last Bullish OB', group = BB_GROUP, minval = 0, display = display.none)
+bbShowBearInput = input.int(3, 'Show Last Bearish OB', group = BB_GROUP, minval = 0, display = display.none)
+showBreakerBullishInput = input.bool(true, 'Bullish', group = BB_GROUP, inline = 'bbbias', display = display.none)
+showBreakerBearishInput = input.bool(true, 'Bearish', group = BB_GROUP, inline = 'bbbias', display = display.none)
+bbUseBodyInput = input.bool(false, 'Use Candle Body', group = BB_GROUP, display = display.none)
+bbShowPreBreakInput = input.bool(false, 'Show Pre-Break OB Segment', group = BB_GROUP, tooltip = 'Off: only the breaker zone (from the break bar onward) is drawn.\nOn: also draws the original OB span up to the break bar.', display = display.none)
+bbShowTagInput = input.bool(true, 'Show Breaker Labels', group = BB_GROUP, tooltip = bbTagTooltip, display = display.none)
+bbLabelSizeInput = input.string(TINY, 'Breaker Label Size', group = BB_GROUP, tooltip = bbTagSizeTooltip, options = [TINY, SMALL, NORMAL], display = display.none)
+bbBullCssInput = input.color(color.new(#2157f3, 80), 'Bullish OB', group = BB_GROUP, inline = 'bbbull', display = display.none)
+bbBullBreakCssInput = input.color(color.new(#ff1100, 80), 'Bullish Break', group = BB_GROUP, inline = 'bbbull', display = display.none)
+bbBearCssInput = input.color(color.new(#ff5d00, 80), 'Bearish OB', group = BB_GROUP, inline = 'bbbear', display = display.none)
+bbBearBreakCssInput = input.color(color.new(#0cb51a, 80), 'Bearish Break', group = BB_GROUP, inline = 'bbbear', display = display.none)
+bbShowLabelsInput = input.bool(false, 'Show Historical Polarity Changes', group = BB_GROUP, display = display.none)
+
+// ——— SMC feature toggles, gated by the SMC master switches ———
+showTrendInput = smc_f_on and smc_struct_master and showTrendInputRaw
+showInternalsInput = smc_f_on and smc_struct_master and showInternalsInputRaw
+showStructureInput = smc_f_on and smc_struct_master and showStructureInputRaw
+showSwingsInput = smc_f_on and smc_struct_master and showSwingsInputRaw
+showHighLowSwingsInput = smc_f_on and smc_hl_master and showHighLowSwingsInputRaw
+showInternalOrderBlocksInput = smc_f_on and smc_ob_master and showInternalOrderBlocksInputRaw
+showSwingOrderBlocksInput = smc_f_on and smc_ob_master and showSwingOrderBlocksInputRaw
+showEqualHighsLowsInput = smc_f_on and smc_eq_master and showEqualHighsLowsInputRaw
+showFairValueGapsInput = smc_f_on and smc_fvg_master and showFairValueGapsInputRaw
+showHTF1Input = smc_f_on and smc_htf_fvg_master and showHTF1InputRaw
+showHTF2Input = smc_f_on and smc_htf_fvg_master and showHTF2InputRaw
+showHTFOb1Input = smc_f_on and smc_htf_ob_master and showHTFOb1InputRaw
+showHTFOb2Input = smc_f_on and smc_htf_ob_master and showHTFOb2InputRaw
+showDailyLevelsInput = smc_f_on and smc_lvl_master and showDailyLevelsInputRaw
+showWeeklyLevelsInput = smc_f_on and smc_lvl_master and showWeeklyLevelsInputRaw
+showMonthlyLevelsInput = smc_f_on and smc_lvl_master and showMonthlyLevelsInputRaw
+showPremiumDiscountZonesInput = smc_f_on and smc_zone_master and showPremiumDiscountZonesInputRaw
+bbShowInput = smc_f_on and smc_bb_master and bbShowInputRaw
+
+//---------------------------------------------------------------------------------------------------------------------
+// SMC DATA STRUCTURES & VARIABLES
+//---------------------------------------------------------------------------------------------------------------------
+type alerts
+    bool internalBullishBOS = false
+    bool internalBearishBOS = false
+    bool internalBullishCHoCH = false
+    bool internalBearishCHoCH = false
+    bool swingBullishBOS = false
+    bool swingBearishBOS = false
+    bool swingBullishCHoCH = false
+    bool swingBearishCHoCH = false
+    bool internalBullishOrderBlock = false
+    bool internalBearishOrderBlock = false
+    bool swingBullishOrderBlock = false
+    bool swingBearishOrderBlock = false
+    bool equalHighs = false
+    bool equalLows = false
+    bool bullishFairValueGap = false
+    bool bearishFairValueGap = false
+    bool htf1BullishFVG = false
+    bool htf1BearishFVG = false
+    bool htf2BullishFVG = false
+    bool htf2BearishFVG = false
+    bool htf1BullishOB = false
+    bool htf1BearishOB = false
+    bool htf2BullishOB = false
+    bool htf2BearishOB = false
+    bool bullishBreakerBlock = false
+    bool bearishBreakerBlock = false
+
+type trailingExtremes
+    float top
+    float bottom
+    int barTime
+    int barIndex
+    int lastTopTime
+    int lastBottomTime
+
+type fairValueGap
+    float top
+    float bottom
+    int bias
+    box topBox
+    box bottomBox
+    int leftTime
+
+type htfFairValueGap
+    float top
+    float bottom
+    int bias
+    box b_ox
+    bool active
+    label l_abel
+
+type trend
+    int bias
+
+type equalDisplay
+    line l_ine = na
+    label l_abel = na
+
+type pivot
+    float currentLevel
+    float lastLevel
+    bool crossed
+    int barTime = time
+    int barIndex = bar_index
+
+type orderBlock
+    float barHigh
+    float barLow
+    int barTime
+    int bias
+
+var pivot swingHigh = pivot.new(na, na, false)
+var pivot swingLow = pivot.new(na, na, false)
+var pivot internalHigh = pivot.new(na, na, false)
+var pivot internalLow = pivot.new(na, na, false)
+var pivot equalHigh = pivot.new(na, na, false)
+var pivot equalLow = pivot.new(na, na, false)
+var trend swingTrend = trend.new(0)
+var trend internalTrend = trend.new(0)
+var equalDisplay equalHighDisplay = equalDisplay.new()
+var equalDisplay equalLowDisplay = equalDisplay.new()
+var array<fairValueGap> fairValueGaps = array.new<fairValueGap>()
+var array<htfFairValueGap> htf1Gaps = array.new<htfFairValueGap>()
+var array<htfFairValueGap> htf2Gaps = array.new<htfFairValueGap>()
+var array<htfFairValueGap> htf1Obs = array.new<htfFairValueGap>()
+var array<htfFairValueGap> htf2Obs = array.new<htfFairValueGap>()
+var array<float> parsedHighs = array.new<float>()
+var array<float> parsedLows = array.new<float>()
+var array<float> highs = array.new<float>()
+var array<float> lows = array.new<float>()
+var array<int> times = array.new<int>()
+var int trimOffset = 0
+var trailingExtremes trailing = trailingExtremes.new()
+var array<orderBlock> swingOrderBlocks = array.new<orderBlock>()
+var array<orderBlock> internalOrderBlocks = array.new<orderBlock>()
+var array<box> swingOrderBlocksBoxes = array.new<box>()
+var array<box> internalOrderBlocksBoxes = array.new<box>()
+var array<label> swingOrderBlocksLabels = array.new<label>()
+var array<label> internalOrderBlocksLabels = array.new<label>()
+var swingBullishColor = styleInput == MONOCHROME ? MONO_BULLISH : swingBullColorInput
+var swingBearishColor = styleInput == MONOCHROME ? MONO_BEARISH : swingBearColorInput
+var fairValueGapBullishColor = styleInput == MONOCHROME ? color.new(MONO_BULLISH, 70) : fairValueGapsBullColorInput
+var fairValueGapBearishColor = styleInput == MONOCHROME ? color.new(MONO_BEARISH, 70) : fairValueGapsBearColorInput
+var premiumZoneColor = styleInput == MONOCHROME ? MONO_BEARISH : premiumZoneColorInput
+var discountZoneColor = styleInput == MONOCHROME ? MONO_BULLISH : discountZoneColorInput
+varip int currentBarIndex = bar_index
+varip int lastBarIndex = bar_index
+alerts currentAlerts = alerts.new()
+var initialTime = time
+
+// Breaker Blocks - reusable drawing object pools
+var array<box> bbBullBoxA = array.new<box>()
+var array<box> bbBullBoxB = array.new<box>()
+var array<line> bbBullLineTop1 = array.new<line>()
+var array<line> bbBullLineBtm1 = array.new<line>()
+var array<line> bbBullLineTop2 = array.new<line>()
+var array<line> bbBullLineBtm2 = array.new<line>()
+var array<label> bbBullLabels = array.new<label>()
+var array<box> bbBearBoxA = array.new<box>()
+var array<box> bbBearBoxB = array.new<box>()
+var array<line> bbBearLineTop1 = array.new<line>()
+var array<line> bbBearLineBtm1 = array.new<line>()
+var array<line> bbBearLineTop2 = array.new<line>()
+var array<line> bbBearLineBtm2 = array.new<line>()
+var array<label> bbBearLabels = array.new<label>()
+
+if barstate.isfirst
+    if showSwingOrderBlocksInput
+        for index = 1 to swingOrderBlocksSizeInput
+            swingOrderBlocksBoxes.push(box.new(na, na, na, na, xloc = xloc.bar_time, extend = extend.right))
+            swingOrderBlocksLabels.push(label.new(na, na, text = '', color = color(na), textcolor = color.white, style = label.style_label_center, size = obLabelSizeInput))
+    if showInternalOrderBlocksInput
+        for index = 1 to internalOrderBlocksSizeInput
+            internalOrderBlocksBoxes.push(box.new(na, na, na, na, xloc = xloc.bar_time, extend = extend.right))
+            internalOrderBlocksLabels.push(label.new(na, na, text = '', color = color(na), textcolor = color.white, style = label.style_label_center, size = obLabelSizeInput))
+    if bbShowInput
+        for index = 1 to bbShowBullInput
+            bbBullBoxA.push(box.new(na, na, na, na, xloc = xloc.bar_time, border_color = color(na), bgcolor = color(na)))
+            bbBullBoxB.push(box.new(na, na, na, na, xloc = xloc.bar_time, border_color = color(na), bgcolor = color(na)))
+            bbBullLineTop1.push(line.new(na, na, na, na, xloc = xloc.bar_time, color = color(na)))
+            bbBullLineBtm1.push(line.new(na, na, na, na, xloc = xloc.bar_time, color = color(na)))
+            bbBullLineTop2.push(line.new(na, na, na, na, xloc = xloc.bar_time, color = color(na)))
+            bbBullLineBtm2.push(line.new(na, na, na, na, xloc = xloc.bar_time, color = color(na)))
+            bbBullLabels.push(label.new(na, na, text = '', color = color(na), textcolor = color.white, style = label.style_label_center, size = bbLabelSizeInput))
+        for index = 1 to bbShowBearInput
+            bbBearBoxA.push(box.new(na, na, na, na, xloc = xloc.bar_time, border_color = color(na), bgcolor = color(na)))
+            bbBearBoxB.push(box.new(na, na, na, na, xloc = xloc.bar_time, border_color = color(na), bgcolor = color(na)))
+            bbBearLineTop1.push(line.new(na, na, na, na, xloc = xloc.bar_time, color = color(na)))
+            bbBearLineBtm1.push(line.new(na, na, na, na, xloc = xloc.bar_time, color = color(na)))
+            bbBearLineTop2.push(line.new(na, na, na, na, xloc = xloc.bar_time, color = color(na)))
+            bbBearLineBtm2.push(line.new(na, na, na, na, xloc = xloc.bar_time, color = color(na)))
+            bbBearLabels.push(label.new(na, na, text = '', color = color(na), textcolor = color.white, style = label.style_label_center, size = bbLabelSizeInput))
+
+bearishOrderBlockMitigationSource = orderBlockMitigationInput == CLOSE ? close : high
+bullishOrderBlockMitigationSource = orderBlockMitigationInput == CLOSE ? close : low
+atrMeasure = ta.atr(200)
+volatilityMeasure = orderBlockFilterInput == ATR ? atrMeasure : ta.cum(ta.tr) / bar_index
+highVolatilityBar = (high - low) >= (2 * volatilityMeasure)
+parsedHigh = highVolatilityBar ? low : high
+parsedLow = highVolatilityBar ? high : low
+
+parsedHighs.push(parsedHigh)
+parsedLows.push(parsedLow)
+highs.push(high)
+lows.push(low)
+times.push(time)
+
+// Cap memory/CPU cost: once the buffer exceeds the configured size, drop the oldest bar
+if parsedHighs.size() > historyBufferInput
+    parsedHighs.shift()
+    parsedLows.shift()
+    highs.shift()
+    lows.shift()
+    times.shift()
+    trimOffset += 1
+
+// Translates an absolute bar_index into a position inside the (possibly trimmed) buffer arrays
+toBufIndex(int bi) => math.max(bi - trimOffset, 0)
+
+//---------------------------------------------------------------------------------------------------------------------
+// SMC USER-DEFINED FUNCTIONS
+//---------------------------------------------------------------------------------------------------------------------
+leg(int size) =>
+    var leg = 0
+    newLegHigh = high[size] > ta.highest(size)
+    newLegLow = low[size] < ta.lowest(size)
+
+    if newLegHigh
+        leg := BEARISH_LEG
+    else if newLegLow
+        leg := BULLISH_LEG
+    leg
+
+startOfNewLeg(int leg) => ta.change(leg) != 0
+startOfBearishLeg(int leg) => ta.change(leg) == -1
+startOfBullishLeg(int leg) => ta.change(leg) == +1
+
+drawLabel(int labelTime, float labelPrice, string tag, color labelColor, string labelStyle) =>
+    var label l_abel = na
+
+    if modeInput == PRESENT
+        l_abel.delete()
+
+    l_abel := label.new(chart.point.new(labelTime, na, labelPrice), tag, xloc.bar_time, color = color(na), textcolor = labelColor, style = labelStyle, size = size.small)
+
+drawEqualHighLow(pivot p_ivot, float level, int size, bool equalHigh) =>
+    equalDisplay e_qualDisplay = equalHigh ? equalHighDisplay : equalLowDisplay
+
+    string tag = 'EQL'
+    color equalColor = swingBullishColor
+    string labelStyle = label.style_label_up
+
+    if equalHigh
+        tag := 'EQH'
+        equalColor := swingBearishColor
+        labelStyle := label.style_label_down
+
+    if modeInput == PRESENT
+        line.delete(e_qualDisplay.l_ine)
+        label.delete(e_qualDisplay.l_abel)
+
+    e_qualDisplay.l_ine := line.new(chart.point.new(p_ivot.barTime, na, p_ivot.currentLevel), chart.point.new(time[size], na, level), xloc = xloc.bar_time, color = equalColor, style = line.style_dotted)
+    labelPosition = math.round(0.5 * (p_ivot.barIndex + bar_index - size))
+    e_qualDisplay.l_abel := label.new(chart.point.new(na, labelPosition, level), tag, xloc.bar_index, color = color(na), textcolor = equalColor, style = labelStyle, size = equalHighsLowsSizeInput)
+
+getCurrentStructure(int size, bool equalHighLow = false, bool internal = false) =>
+    currentLeg = leg(size)
+    newPivot = startOfNewLeg(currentLeg)
+    pivotLow = startOfBullishLeg(currentLeg)
+    pivotHigh = startOfBearishLeg(currentLeg)
+
+    if newPivot
+        if pivotLow
+            pivot p_ivot = equalHighLow ? equalLow : internal ? internalLow : swingLow
+
+            if equalHighLow and math.abs(p_ivot.currentLevel - low[size]) < equalHighsLowsThresholdInput * atrMeasure
+                drawEqualHighLow(p_ivot, low[size], size, false)
+                currentAlerts.equalLows := true
+
+            p_ivot.lastLevel := p_ivot.currentLevel
+            p_ivot.currentLevel := low[size]
+            p_ivot.crossed := false
+            p_ivot.barTime := time[size]
+            p_ivot.barIndex := bar_index[size]
+
+            if not equalHighLow and not internal
+                trailing.bottom := p_ivot.currentLevel
+                trailing.barTime := p_ivot.barTime
+                trailing.barIndex := p_ivot.barIndex
+                trailing.lastBottomTime := p_ivot.barTime
+
+            if showSwingsInput and not internal and not equalHighLow
+                drawLabel(time[size], p_ivot.currentLevel, p_ivot.currentLevel < p_ivot.lastLevel ? 'LL' : 'HL', swingBullishColor, label.style_label_up)
+        else
+            pivot p_ivot = equalHighLow ? equalHigh : internal ? internalHigh : swingHigh
+
+            if equalHighLow and math.abs(p_ivot.currentLevel - high[size]) < equalHighsLowsThresholdInput * atrMeasure
+                drawEqualHighLow(p_ivot, high[size], size, true)
+                currentAlerts.equalHighs := true
+
+            p_ivot.lastLevel := p_ivot.currentLevel
+            p_ivot.currentLevel := high[size]
+            p_ivot.crossed := false
+            p_ivot.barTime := time[size]
+            p_ivot.barIndex := bar_index[size]
+
+            if not equalHighLow and not internal
+                trailing.top := p_ivot.currentLevel
+                trailing.barTime := p_ivot.barTime
+                trailing.barIndex := p_ivot.barIndex
+                trailing.lastTopTime := p_ivot.barTime
+
+            if showSwingsInput and not internal and not equalHighLow
+                drawLabel(time[size], p_ivot.currentLevel, p_ivot.currentLevel > p_ivot.lastLevel ? 'HH' : 'LH', swingBearishColor, label.style_label_down)
+
+drawStructure(pivot p_ivot, string tag, color structureColor, string lineStyle, string labelStyle, string labelSize) =>
+    var line l_ine = line.new(na, na, na, na, xloc = xloc.bar_time)
+    var label l_abel = label.new(na, na)
+
+    if modeInput == PRESENT
+        l_ine.delete()
+        l_abel.delete()
+
+    l_ine := line.new(chart.point.new(p_ivot.barTime, na, p_ivot.currentLevel), chart.point.new(time, na, p_ivot.currentLevel), xloc.bar_time, color = structureColor, style = lineStyle)
+    l_abel := label.new(chart.point.new(na, math.round(0.5 * (p_ivot.barIndex + bar_index)), p_ivot.currentLevel), tag, xloc.bar_index, color = color(na), textcolor = structureColor, style = labelStyle, size = labelSize)
+
+deleteOrderBlocks(bool internal = false) =>
+    array<orderBlock> orderBlocks = internal ? internalOrderBlocks : swingOrderBlocks
+
+    // Iterate backwards so removing an element mid-loop never skips the one that shifts into its place
+    if orderBlocks.size() > 0
+        for i = orderBlocks.size() - 1 to 0
+            orderBlock eachOrderBlock = orderBlocks.get(i)
+            bool crossedOderBlock = false
+
+            if bearishOrderBlockMitigationSource > eachOrderBlock.barHigh and eachOrderBlock.bias == BEARISH
+                crossedOderBlock := true
+                if internal
+                    currentAlerts.internalBearishOrderBlock := true
+                else
+                    currentAlerts.swingBearishOrderBlock := true
+            else if bullishOrderBlockMitigationSource < eachOrderBlock.barLow and eachOrderBlock.bias == BULLISH
+                crossedOderBlock := true
+                if internal
+                    currentAlerts.internalBullishOrderBlock := true
+                else
+                    currentAlerts.swingBullishOrderBlock := true
+
+            if crossedOderBlock
+                orderBlocks.remove(i)
+
+storeOrdeBlock(pivot p_ivot, bool internal = false, int bias) =>
+    if (not internal and showSwingOrderBlocksInput) or (internal and showInternalOrderBlocksInput)
+
+        array<float> a_rray = na
+        int parsedIndex = na
+
+        int fromIndex = toBufIndex(p_ivot.barIndex)
+        int toIndex = toBufIndex(bar_index)
+
+        if bias == BEARISH
+            a_rray := parsedHighs.slice(fromIndex, toIndex)
+            parsedIndex := fromIndex + a_rray.indexof(a_rray.max())
+        else
+            a_rray := parsedLows.slice(fromIndex, toIndex)
+            parsedIndex := fromIndex + a_rray.indexof(a_rray.min())
+
+        orderBlock o_rderBlock = orderBlock.new(parsedHighs.get(parsedIndex), parsedLows.get(parsedIndex), times.get(parsedIndex), bias)
+        array<orderBlock> orderBlocks = internal ? internalOrderBlocks : swingOrderBlocks
+
+        if orderBlocks.size() >= 100
+            orderBlocks.pop()
+        orderBlocks.unshift(o_rderBlock)
+
+drawOrderBlocks(bool internal = false) =>
+    array<orderBlock> orderBlocks = internal ? internalOrderBlocks : swingOrderBlocks
+    array<label> l_abels = internal ? internalOrderBlocksLabels : swingOrderBlocksLabels
+    orderBlocksSize = orderBlocks.size()
+
+    if orderBlocksSize > 0
+        maxOrderBlocks = internal ? internalOrderBlocksSizeInput : swingOrderBlocksSizeInput
+        array<orderBlock> parsedOrdeBlocks = orderBlocks.slice(0, math.min(maxOrderBlocks, orderBlocksSize))
+        array<box> b_oxes = internal ? internalOrderBlocksBoxes : swingOrderBlocksBoxes
+
+        for [index, eachOrderBlock] in parsedOrdeBlocks
+            orderBlockColor = styleInput == MONOCHROME ? (eachOrderBlock.bias == BEARISH ? color.new(MONO_BEARISH, 80) : color.new(MONO_BULLISH, 80)) : internal ? (eachOrderBlock.bias == BEARISH ? internalBearishOrderBlockColor : internalBullishOrderBlockColor) : (eachOrderBlock.bias == BEARISH ? swingBearishOrderBlockColor : swingBullishOrderBlockColor)
+            bool biasVisible = eachOrderBlock.bias == BEARISH ? (internal ? showInternalBearishOBInput : showSwingBearishOBInput) : (internal ? showInternalBullishOBInput : showSwingBullishOBInput)
+
+            box b_ox = b_oxes.get(index)
+            label l_abel = l_abels.get(index)
+
+            if biasVisible
+                b_ox.set_top_left_point(chart.point.new(eachOrderBlock.barTime, na, eachOrderBlock.barHigh))
+                b_ox.set_bottom_right_point(chart.point.new(last_bar_time, na, eachOrderBlock.barLow))
+                b_ox.set_border_color(internal ? na : orderBlockColor)
+                b_ox.set_bgcolor(orderBlockColor)
+
+                l_abel.set_point(chart.point.new(na, last_bar_index, 0.5 * (eachOrderBlock.barHigh + eachOrderBlock.barLow)))
+                l_abel.set_text(showObLabelsInput ? (eachOrderBlock.bias == BEARISH ? 'Bear OB' : 'Bull OB') : '')
+                l_abel.set_textcolor(color.new(orderBlockColor, 0))
+                l_abel.set_size(obLabelSizeInput)
+            else
+                b_ox.set_border_color(color(na))
+                b_ox.set_bgcolor(color(na))
+                l_abel.set_text('')
+
+        if l_abels.size() > parsedOrdeBlocks.size()
+            for i = parsedOrdeBlocks.size() to l_abels.size() - 1
+                l_abels.get(i).set_text('')
+    else
+        for eachLabel in l_abels
+            eachLabel.set_text('')
+
+displayStructure(bool internal = false) =>
+    var bullishBar = true
+    var bearishBar = true
+
+    if internalFilterConfluenceInput
+        bullishBar := high - math.max(close, open) > math.min(close, open - low)
+        bearishBar := high - math.max(close, open) < math.min(close, open - low)
+
+    pivot p_ivot = internal ? internalHigh : swingHigh
+    trend t_rend = internal ? internalTrend : swingTrend
+
+    lineStyle = internal ? line.style_dashed : line.style_solid
+    labelSize = internal ? internalStructureSize : swingStructureSize
+
+    extraCondition = internal ? internalHigh.currentLevel != swingHigh.currentLevel and bullishBar : true
+    bullishColor = styleInput == MONOCHROME ? MONO_BULLISH : internal ? internalBullColorInput : swingBullColorInput
+
+    if ta.crossover(close, p_ivot.currentLevel) and not p_ivot.crossed and extraCondition
+        string tag = t_rend.bias == BEARISH ? CHOCH : BOS
+
+        if internal
+            currentAlerts.internalBullishCHoCH := tag == CHOCH
+            currentAlerts.internalBullishBOS := tag == BOS
+        else
+            currentAlerts.swingBullishCHoCH := tag == CHOCH
+            currentAlerts.swingBullishBOS := tag == BOS
+
+        p_ivot.crossed := true
+        t_rend.bias := BULLISH
+
+        displayCondition = internal ? showInternalsInput and (showInternalBullInput == ALL or (showInternalBullInput == BOS and tag != CHOCH) or (showInternalBullInput == CHOCH and tag == CHOCH)) : showStructureInput and (showSwingBullInput == ALL or (showSwingBullInput == BOS and tag != CHOCH) or (showSwingBullInput == CHOCH and tag == CHOCH))
+
+        if displayCondition
+            drawStructure(p_ivot, tag, bullishColor, lineStyle, label.style_label_down, labelSize)
+
+        if (internal and showInternalOrderBlocksInput) or (not internal and showSwingOrderBlocksInput)
+            storeOrdeBlock(p_ivot, internal, BULLISH)
+
+    p_ivot := internal ? internalLow : swingLow
+    extraCondition := internal ? internalLow.currentLevel != swingLow.currentLevel and bearishBar : true
+    bearishColor = styleInput == MONOCHROME ? MONO_BEARISH : internal ? internalBearColorInput : swingBearColorInput
+
+    if ta.crossunder(close, p_ivot.currentLevel) and not p_ivot.crossed and extraCondition
+        string tag = t_rend.bias == BULLISH ? CHOCH : BOS
+
+        if internal
+            currentAlerts.internalBearishCHoCH := tag == CHOCH
+            currentAlerts.internalBearishBOS := tag == BOS
+        else
+            currentAlerts.swingBearishCHoCH := tag == CHOCH
+            currentAlerts.swingBearishBOS := tag == BOS
+
+        p_ivot.crossed := true
+        t_rend.bias := BEARISH
+
+        displayCondition = internal ? showInternalsInput and (showInternalBearInput == ALL or (showInternalBearInput == BOS and tag != CHOCH) or (showInternalBearInput == CHOCH and tag == CHOCH)) : showStructureInput and (showSwingBearInput == ALL or (showSwingBearInput == BOS and tag != CHOCH) or (showSwingBearInput == CHOCH and tag == CHOCH))
+
+        if displayCondition
+            drawStructure(p_ivot, tag, bearishColor, lineStyle, label.style_label_up, labelSize)
+
+        if (internal and showInternalOrderBlocksInput) or (not internal and showSwingOrderBlocksInput)
+            storeOrdeBlock(p_ivot, internal, BEARISH)
+
+// FIX: the right edge of the box used (time - time[1]) as "one bar width". On the first bar after an
+// overnight / weekend / holiday gap that value is the whole closed period, so the box was pushed far to
+// the right (looking like it was extended to the current candle). A fixed bar duration is used instead.
+fairValueGapBox(leftTime, rightTime, topPrice, bottomPrice, boxColor) =>
+    int barMs = timeframe.in_seconds(fairValueGapsTimeframeInput == '' ? timeframe.period : fairValueGapsTimeframeInput) * 1000
+    box.new(chart.point.new(leftTime, na, topPrice), chart.point.new(rightTime + fairValueGapsExtendInput * barMs, na, bottomPrice), xloc = xloc.bar_time, border_color = boxColor, bgcolor = boxColor)
+
+deleteFairValueGaps() =>
+    if fairValueGaps.size() > 0
+        for i = fairValueGaps.size() - 1 to 0
+            fairValueGap eachFairValueGap = fairValueGaps.get(i)
+            if (low < eachFairValueGap.bottom and eachFairValueGap.bias == BULLISH) or (high > eachFairValueGap.top and eachFairValueGap.bias == BEARISH)
+                eachFairValueGap.topBox.delete()
+                eachFairValueGap.bottomBox.delete()
+                fairValueGaps.remove(i)
+
+// Instantly hides/shows already-plotted FVG boxes when the Show Bullish/Bearish FVG toggles change
+syncFvgVisibility() =>
+    if fairValueGaps.size() > 0
+        for eachFairValueGap in fairValueGaps
+            bool visible = eachFairValueGap.bias == BULLISH ? showBullishFVGInput : showBearishFVGInput
+            color baseColor = eachFairValueGap.bias == BULLISH ? fairValueGapBullishColor : fairValueGapBearishColor
+            color applied = visible ? baseColor : color(na)
+            eachFairValueGap.topBox.set_border_color(applied)
+            eachFairValueGap.topBox.set_bgcolor(applied)
+            eachFairValueGap.bottomBox.set_border_color(applied)
+            eachFairValueGap.bottomBox.set_bgcolor(applied)
+
+// "Extend FVG to Current Bar": stretches every non mitigated FVG box to the current candle (last bar only)
+updateFvgStyle() =>
+    if showFvgStyleInput and fairValueGaps.size() > 0
+        for eachFairValueGap in fairValueGaps
+            eachFairValueGap.topBox.set_right(time)
+            eachFairValueGap.bottomBox.set_right(time)
+
+drawFairValueGaps() =>
+    [lastClose, lastOpen, lastTime, currentHigh, currentLow, currentTime, last2High, last2Low] = request.security(syminfo.tickerid, fairValueGapsTimeframeInput, [close[1], open[1], time[1], high[0], low[0], time[0], high[2], low[2]], lookahead = barmerge.lookahead_on)
+
+    barDeltaPercent = (lastClose - lastOpen) / (lastOpen * 100)
+    newTimeframe = timeframe.change(fairValueGapsTimeframeInput)
+    threshold = fairValueGapsThresholdInput ? ta.cum(math.abs(newTimeframe ? barDeltaPercent : 0)) / bar_index * 2 : 0
+
+    bullishFairValueGap = currentLow > last2High and lastClose > last2High and barDeltaPercent > threshold and newTimeframe
+    bearishFairValueGap = currentHigh < last2Low and lastClose < last2Low and -barDeltaPercent > threshold and newTimeframe
+
+    if bullishFairValueGap
+        currentAlerts.bullishFairValueGap := true
+        fairValueGaps.unshift(fairValueGap.new(currentLow, last2High, BULLISH, fairValueGapBox(lastTime, currentTime, currentLow, math.avg(currentLow, last2High), fairValueGapBullishColor), fairValueGapBox(lastTime, currentTime, math.avg(currentLow, last2High), last2High, fairValueGapBullishColor), lastTime))
+    if bearishFairValueGap
+        currentAlerts.bearishFairValueGap := true
+        fairValueGaps.unshift(fairValueGap.new(currentHigh, last2Low, BEARISH, fairValueGapBox(lastTime, currentTime, currentHigh, math.avg(currentHigh, last2Low), fairValueGapBearishColor), fairValueGapBox(lastTime, currentTime, math.avg(currentHigh, last2Low), last2Low, fairValueGapBearishColor), lastTime))
+
+// ---------------------------------------------------------------------------------------------------------------------
+// HTF FVG FUNCTIONS
+// ---------------------------------------------------------------------------------------------------------------------
+htfFvgData() =>
+    bool bull = low[1] > high[3] and close[2] > high[3]
+    bool bear = high[1] < low[3] and close[2] < low[3]
+    [bull, bear, low[1], high[3], low[3], high[1], time[3], time]
+
+htfText(string tf) =>
+    int sec = timeframe.in_seconds(tf)
+    string out = ''
+    if sec % 86400 == 0
+        int n = int(sec / 86400)
+        out := str.tostring(n) + (n == 1 ? ' Day' : ' Days')
+    else if sec % 3600 == 0
+        int n = int(sec / 3600)
+        out := str.tostring(n) + (n == 1 ? ' Hour' : ' Hours')
+    else
+        out := str.tostring(int(sec / 60)) + ' Min'
+    out
+
+updateHtfLabel(htfFairValueGap g, int x) =>
+    g.l_abel.set_point(chart.point.new(x, na, 0.5 * (g.top + g.bottom)))
+
+updateHtfFvg(array<htfFairValueGap> gaps, bool enabled, string tf, bool isNew, bool bull, bool bear, float bTop, float bBottom, float rTop, float rBottom, int leftTime, color bullBorder, color bearBorder, color bullBox, color bearBox) =>
+    if enabled
+        if gaps.size() > 0
+            for i = gaps.size() - 1 to 0
+                htfFairValueGap g = gaps.get(i)
+                if g.active
+                    bool mitigated = (g.bias == BULLISH and low < g.bottom) or (g.bias == BEARISH and high > g.top)
+                    if mitigated
+                        if htfDeleteMitigatedInput
+                            g.b_ox.delete()
+                            g.l_abel.delete()
+                            gaps.remove(i)
+                        else
+                            g.active := false
+                            g.b_ox.set_extend(extend.none)
+                            g.b_ox.set_right(time)
+                            updateHtfLabel(g, time)
+                    else if htfExtendInput
+                        updateHtfLabel(g, time)
+
+        if isNew and (bull or bear)
+            float topPrice = bull ? bTop : rTop
+            float bottomPrice = bull ? bBottom : rBottom
+            int biasValue = bull ? BULLISH : BEARISH
+            color borderColor = bull ? bullBorder : bearBorder
+            color boxColor = bull ? bullBox : bearBox
+            string fvgText = htfText(tf) + (bull ? ' Bull HTF FVG' : ' Bear HTF FVG')
+
+            box newBox = box.new(leftTime, topPrice, time, bottomPrice, border_color = borderColor, bgcolor = boxColor, extend = htfExtendInput ? extend.right : extend.none, xloc = xloc.bar_time)
+            int labelTime = htfExtendInput ? time : math.round(0.5 * (leftTime + time))
+            label newLabel = label.new(chart.point.new(labelTime, na, 0.5 * (topPrice + bottomPrice)), htfShowTextInput ? fvgText : '', xloc.bar_time, color = color(na), textcolor = color.new(borderColor, 0), style = label.style_label_center, size = htfTextSizeInput)
+            gaps.push(htfFairValueGap.new(topPrice, bottomPrice, biasValue, newBox, true, newLabel))
+
+            if gaps.size() > htfMaxInput
+                htfFairValueGap oldest = gaps.shift()
+                oldest.b_ox.delete()
+                oldest.l_abel.delete()
+
+// ---------------------------------------------------------------------------------------------------------------------
+// HTF OB FUNCTIONS
+// ---------------------------------------------------------------------------------------------------------------------
+htfObData(float impulseMult) =>
+    float atrValue = ta.atr(14)[1]
+    float bodySize = math.abs(close[1] - open[1])
+    bool strongMove = impulseMult <= 0 or bodySize >= impulseMult * atrValue
+    bool obBull = close[2] < open[2] and close[1] > open[1] and close[1] > high[2] and strongMove
+    bool obBear = close[2] > open[2] and close[1] < open[1] and close[1] < low[2] and strongMove
+    [obBull, obBear, high[2], low[2], time[2], time]
+
+updateHtfOb(array<htfFairValueGap> obs, bool enabled, string tf, bool isNew, bool bull, bool bear, float oTop, float oBottom, int leftTime, color bullBorder, color bearBorder, color bullBox, color bearBox) =>
+    if enabled
+        if obs.size() > 0
+            for i = obs.size() - 1 to 0
+                htfFairValueGap g = obs.get(i)
+                if g.active
+                    bool mitigated = (g.bias == BULLISH and bullishOrderBlockMitigationSource < g.bottom) or (g.bias == BEARISH and bearishOrderBlockMitigationSource > g.top)
+                    if mitigated
+                        if htfObDeleteMitigatedInput
+                            g.b_ox.delete()
+                            g.l_abel.delete()
+                            obs.remove(i)
+                        else
+                            g.active := false
+                            g.b_ox.set_extend(extend.none)
+                            g.b_ox.set_right(time)
+                            updateHtfLabel(g, time)
+                    else if htfObExtendInput
+                        updateHtfLabel(g, time)
+
+        if isNew and (bull or bear)
+            int biasValue = bull ? BULLISH : BEARISH
+            color borderColor = bull ? bullBorder : bearBorder
+            color boxColor = bull ? bullBox : bearBox
+            string obText = htfText(tf) + (bull ? ' Bull HTF OB' : ' Bear HTF OB')
+
+            box newBox = box.new(leftTime, oTop, time, oBottom, border_color = borderColor, bgcolor = boxColor, extend = htfObExtendInput ? extend.right : extend.none, xloc = xloc.bar_time)
+            int labelTime = htfObExtendInput ? time : math.round(0.5 * (leftTime + time))
+            label newLabel = label.new(chart.point.new(labelTime, na, 0.5 * (oTop + oBottom)), htfObShowTextInput ? obText : '', xloc.bar_time, color = color(na), textcolor = color.new(borderColor, 0), style = label.style_label_center, size = htfObTextSizeInput)
+            obs.push(htfFairValueGap.new(oTop, oBottom, biasValue, newBox, true, newLabel))
+
+            if obs.size() > htfObMaxInput
+                htfFairValueGap oldest = obs.shift()
+                oldest.b_ox.delete()
+                oldest.l_abel.delete()
+
+// Instantly hides/shows already-plotted HTF FVG / HTF OB boxes when their bull/bear toggles change
+syncHtfVisibility(array<htfFairValueGap> arr, bool showBull, bool showBear, color bullBorder, color bearBorder, color bullBox, color bearBox) =>
+    if arr.size() > 0
+        for eachG in arr
+            bool visible = eachG.bias == BULLISH ? showBull : showBear
+            color borderColor = eachG.bias == BULLISH ? bullBorder : bearBorder
+            color boxColor = eachG.bias == BULLISH ? bullBox : bearBox
+            if visible
+                eachG.b_ox.set_border_color(borderColor)
+                eachG.b_ox.set_bgcolor(boxColor)
+                eachG.l_abel.set_textcolor(color.new(borderColor, 0))
+            else
+                eachG.b_ox.set_border_color(color(na))
+                eachG.b_ox.set_bgcolor(color(na))
+                eachG.l_abel.set_textcolor(color(na))
+
+getStyle(string style) =>
+    switch style
+        SOLID => line.style_solid
+        DASHED => line.style_dashed
+        DOTTED => line.style_dotted
+
+drawLevels(string timeframe, bool sameTimeframe, string style, color levelColor) =>
+    [topLevel, bottomLevel, leftTime, rightTime] = request.security(syminfo.tickerid, timeframe, [high[1], low[1], time[1], time], lookahead = barmerge.lookahead_on)
+
+    float parsedTop = sameTimeframe ? high : topLevel
+    float parsedBottom = sameTimeframe ? low : bottomLevel
+
+    int parsedLeftTime = sameTimeframe ? time : leftTime
+    int parsedRightTime = sameTimeframe ? time : rightTime
+
+    int parsedTopTime = time
+    int parsedBottomTime = time
+
+    if not sameTimeframe
+        int leftIndex = times.binary_search_rightmost(parsedLeftTime)
+        int rightIndex = times.binary_search_rightmost(parsedRightTime)
+
+        array<int> timeArray = times.slice(leftIndex, rightIndex)
+        array<float> topArray = highs.slice(leftIndex, rightIndex)
+        array<float> bottomArray = lows.slice(leftIndex, rightIndex)
+
+        parsedTopTime := timeArray.size() > 0 ? timeArray.get(topArray.indexof(topArray.max())) : initialTime
+        parsedBottomTime := timeArray.size() > 0 ? timeArray.get(bottomArray.indexof(bottomArray.min())) : initialTime
+
+    var line topLine = line.new(na, na, na, na, xloc = xloc.bar_time, color = levelColor, style = getStyle(style))
+    var line bottomLine = line.new(na, na, na, na, xloc = xloc.bar_time, color = levelColor, style = getStyle(style))
+    var label topLabel = label.new(na, na, xloc = xloc.bar_time, text = str.format('P{0}H', timeframe), color = color(na), textcolor = levelColor, size = size.small, style = label.style_label_left)
+    var label bottomLabel = label.new(na, na, xloc = xloc.bar_time, text = str.format('P{0}L', timeframe), color = color(na), textcolor = levelColor, size = size.small, style = label.style_label_left)
+
+    topLine.set_first_point(chart.point.new(parsedTopTime, na, parsedTop))
+    topLine.set_second_point(chart.point.new(last_bar_time + 20 * (time - time[1]), na, parsedTop))
+    topLabel.set_point(chart.point.new(last_bar_time + 20 * (time - time[1]), na, parsedTop))
+
+    bottomLine.set_first_point(chart.point.new(parsedBottomTime, na, parsedBottom))
+    bottomLine.set_second_point(chart.point.new(last_bar_time + 20 * (time - time[1]), na, parsedBottom))
+    bottomLabel.set_point(chart.point.new(last_bar_time + 20 * (time - time[1]), na, parsedBottom))
+
+higherTimeframe(string timeframe) => timeframe.in_seconds() > timeframe.in_seconds(timeframe)
+
+updateTrailingExtremes() =>
+    trailing.top := math.max(high, trailing.top)
+    trailing.lastTopTime := trailing.top == high ? time : trailing.lastTopTime
+    trailing.bottom := math.min(low, trailing.bottom)
+    trailing.lastBottomTime := trailing.bottom == low ? time : trailing.lastBottomTime
+
+drawHighLowSwings() =>
+    var line topLine = line.new(na, na, na, na, color = swingBearishColor, xloc = xloc.bar_time)
+    var line bottomLine = line.new(na, na, na, na, color = swingBullishColor, xloc = xloc.bar_time)
+    var label topLabel = label.new(na, na, color = color(na), textcolor = swingBearishColor, xloc = xloc.bar_time, style = label.style_label_down, size = size.tiny)
+    var label bottomLabel = label.new(na, na, color = color(na), textcolor = swingBullishColor, xloc = xloc.bar_time, style = label.style_label_up, size = size.tiny)
+
+    rightTimeBar = last_bar_time + 20 * (time - time[1])
+
+    topLine.set_first_point(chart.point.new(trailing.lastTopTime, na, trailing.top))
+    topLine.set_second_point(chart.point.new(rightTimeBar, na, trailing.top))
+    topLabel.set_point(chart.point.new(rightTimeBar, na, trailing.top))
+    topLabel.set_text(swingTrend.bias == BEARISH ? 'Strong High' : 'Weak High')
+    topLabel.set_size(highLowLabelSizeInput)
+
+    bottomLine.set_first_point(chart.point.new(trailing.lastBottomTime, na, trailing.bottom))
+    bottomLine.set_second_point(chart.point.new(rightTimeBar, na, trailing.bottom))
+    bottomLabel.set_point(chart.point.new(rightTimeBar, na, trailing.bottom))
+    bottomLabel.set_text(swingTrend.bias == BULLISH ? 'Strong Low' : 'Weak Low')
+    bottomLabel.set_size(highLowLabelSizeInput)
+
+drawZone(float labelLevel, int labelIndex, float top, float bottom, string tag, color zoneColor, string style, bool visible, string labelSize) =>
+    var label l_abel = label.new(na, na, text = tag, color = color(na), textcolor = zoneColor, style = style, size = size.small)
+    var box b_ox = box.new(na, na, na, na, bgcolor = color.new(zoneColor, 80), border_color = color(na), xloc = xloc.bar_time)
+
+    if visible
+        b_ox.set_top_left_point(chart.point.new(trailing.barTime, na, top))
+        b_ox.set_bottom_right_point(chart.point.new(last_bar_time, na, bottom))
+        b_ox.set_bgcolor(color.new(zoneColor, 80))
+        l_abel.set_point(chart.point.new(na, labelIndex, labelLevel))
+        l_abel.set_text(showZoneLabelsInput ? tag : '')
+        l_abel.set_textcolor(showZoneLabelsInput ? zoneColor : color(na))
+        l_abel.set_size(labelSize)
+    else
+        b_ox.set_bgcolor(color(na))
+        l_abel.set_text('')
+        l_abel.set_textcolor(color(na))
+
+drawPremiumDiscountZones() =>
+    drawZone(trailing.top, math.round(0.5 * (trailing.barIndex + last_bar_index)), trailing.top, 0.95 * trailing.top + 0.05 * trailing.bottom, 'Premium', premiumZoneColor, label.style_label_down, showPremiumZoneInput, zoneLabelSizeInput)
+
+    equilibriumLevel = math.avg(trailing.top, trailing.bottom)
+    drawZone(equilibriumLevel, math.round(0.5 * (trailing.barIndex + last_bar_index)), 0.525 * trailing.top + 0.475 * trailing.bottom, 0.525 * trailing.bottom + 0.475 * trailing.top, 'Equilibrium', equilibriumZoneColorInput, label.style_label_center, showEquilibriumZoneInput, zoneLabelSizeInput)
+
+    drawZone(trailing.bottom, math.round(0.5 * (trailing.barIndex + last_bar_index)), 0.95 * trailing.bottom + 0.05 * trailing.top, trailing.bottom, 'Discount', discountZoneColor, label.style_label_up, showDiscountZoneInput, zoneLabelSizeInput)
+
+//---------------------------------------------------------------------------------------------------------------------
+// SMC EXECUTION
+//---------------------------------------------------------------------------------------------------------------------
+parsedOpen = showTrendInput ? open : na
+candleColor = internalTrend.bias == BULLISH ? swingBullishColor : swingBearishColor
+plotcandle(parsedOpen, high, low, close, color = candleColor, wickcolor = candleColor, bordercolor = candleColor, display = display.pane)
+
+if showHighLowSwingsInput or showPremiumDiscountZonesInput
+    updateTrailingExtremes()
+
+    if showHighLowSwingsInput
+        drawHighLowSwings()
+
+    if showPremiumDiscountZonesInput
+        drawPremiumDiscountZones()
+
+if showFairValueGapsInput
+    deleteFairValueGaps()
+
+getCurrentStructure(swingsLengthInput, false)
+getCurrentStructure(internalStructureLengthInput, false, true)
+
+if showEqualHighsLowsInput
+    getCurrentStructure(equalHighsLowsLengthInput, true)
+
+if showInternalsInput or showInternalOrderBlocksInput or showTrendInput
+    displayStructure(true)
+
+if showStructureInput or showSwingOrderBlocksInput or showHighLowSwingsInput
+    displayStructure()
+
+if showInternalOrderBlocksInput
+    deleteOrderBlocks(true)
+
+if showSwingOrderBlocksInput
+    deleteOrderBlocks()
+
+if showFairValueGapsInput
+    drawFairValueGaps()
+    syncFvgVisibility()
+    if barstate.islast
+        updateFvgStyle()
+
+// HTF FVG execution
+htf1Valid = timeframe.in_seconds(htf1Input) >= timeframe.in_seconds(timeframe.period)
+htf2Valid = timeframe.in_seconds(htf2Input) >= timeframe.in_seconds(timeframe.period)
+
+[h1Bull, h1Bear, h1BTop, h1BBottom, h1RTop, h1RBottom, h1Left, h1Time] = request.security(syminfo.tickerid, htf1Input, htfFvgData(), lookahead = barmerge.lookahead_off)
+[h2Bull, h2Bear, h2BTop, h2BBottom, h2RTop, h2RBottom, h2Left, h2Time] = request.security(syminfo.tickerid, htf2Input, htfFvgData(), lookahead = barmerge.lookahead_off)
+
+h1New = ta.change(h1Time) != 0
+h2New = ta.change(h2Time) != 0
+
+updateHtfFvg(htf1Gaps, showHTF1Input and htf1Valid, htf1Input, h1New, h1Bull, h1Bear, h1BTop, h1BBottom, h1RTop, h1RBottom, h1Left, htf1BullBorderInput, htf1BearBorderInput, htf1BullBoxInput, htf1BearBoxInput)
+updateHtfFvg(htf2Gaps, showHTF2Input and htf2Valid, htf2Input, h2New, h2Bull, h2Bear, h2BTop, h2BBottom, h2RTop, h2RBottom, h2Left, htf2BullBorderInput, htf2BearBorderInput, htf2BullBoxInput, htf2BearBoxInput)
+
+syncHtfVisibility(htf1Gaps, showHtf1BullFVGInput, showHtf1BearFVGInput, htf1BullBorderInput, htf1BearBorderInput, htf1BullBoxInput, htf1BearBoxInput)
+syncHtfVisibility(htf2Gaps, showHtf2BullFVGInput, showHtf2BearFVGInput, htf2BullBorderInput, htf2BearBorderInput, htf2BullBoxInput, htf2BearBoxInput)
+
+currentAlerts.htf1BullishFVG := showHTF1Input and htf1Valid and h1New and h1Bull
+currentAlerts.htf1BearishFVG := showHTF1Input and htf1Valid and h1New and h1Bear
+currentAlerts.htf2BullishFVG := showHTF2Input and htf2Valid and h2New and h2Bull
+currentAlerts.htf2BearishFVG := showHTF2Input and htf2Valid and h2New and h2Bear
+
+// HTF OB execution
+htfOb1Valid = timeframe.in_seconds(htfOb1Input) >= timeframe.in_seconds(timeframe.period)
+htfOb2Valid = timeframe.in_seconds(htfOb2Input) >= timeframe.in_seconds(timeframe.period)
+
+[o1Bull, o1Bear, o1Top, o1Bottom, o1Left, o1Time] = request.security(syminfo.tickerid, htfOb1Input, htfObData(htfObImpulseInput), lookahead = barmerge.lookahead_off)
+[o2Bull, o2Bear, o2Top, o2Bottom, o2Left, o2Time] = request.security(syminfo.tickerid, htfOb2Input, htfObData(htfObImpulseInput), lookahead = barmerge.lookahead_off)
+
+o1New = ta.change(o1Time) != 0
+o2New = ta.change(o2Time) != 0
+
+updateHtfOb(htf1Obs, showHTFOb1Input and htfOb1Valid, htfOb1Input, o1New, o1Bull, o1Bear, o1Top, o1Bottom, o1Left, htfOb1BullBorderInput, htfOb1BearBorderInput, htfOb1BullBoxInput, htfOb1BearBoxInput)
+updateHtfOb(htf2Obs, showHTFOb2Input and htfOb2Valid, htfOb2Input, o2New, o2Bull, o2Bear, o2Top, o2Bottom, o2Left, htfOb2BullBorderInput, htfOb2BearBorderInput, htfOb2BullBoxInput, htfOb2BearBoxInput)
+
+syncHtfVisibility(htf1Obs, showHtfOb1BullInput, showHtfOb1BearInput, htfOb1BullBorderInput, htfOb1BearBorderInput, htfOb1BullBoxInput, htfOb1BearBoxInput)
+syncHtfVisibility(htf2Obs, showHtfOb2BullInput, showHtfOb2BearInput, htfOb2BullBorderInput, htfOb2BearBorderInput, htfOb2BullBoxInput, htfOb2BearBoxInput)
+
+currentAlerts.htf1BullishOB := showHTFOb1Input and htfOb1Valid and o1New and o1Bull
+currentAlerts.htf1BearishOB := showHTFOb1Input and htfOb1Valid and o1New and o1Bear
+currentAlerts.htf2BullishOB := showHTFOb2Input and htfOb2Valid and o2New and o2Bull
+currentAlerts.htf2BearishOB := showHTFOb2Input and htfOb2Valid and o2New and o2Bear
+
+if barstate.islastconfirmedhistory or barstate.islast
+    if showInternalOrderBlocksInput
+        drawOrderBlocks(true)
+
+    if showSwingOrderBlocksInput
+        drawOrderBlocks()
+
+lastBarIndex := currentBarIndex
+currentBarIndex := bar_index
+newBar = currentBarIndex != lastBarIndex
+
+if barstate.islastconfirmedhistory or (barstate.isrealtime and newBar)
+    if showDailyLevelsInput and not higherTimeframe('D')
+        drawLevels('D', timeframe.isdaily, dailyLevelsStyleInput, dailyLevelsColorInput)
+
+    if showWeeklyLevelsInput and not higherTimeframe('W')
+        drawLevels('W', timeframe.isweekly, weeklyLevelsStyleInput, weeklyLevelsColorInput)
+
+    if showMonthlyLevelsInput and not higherTimeframe('M')
+        drawLevels('M', timeframe.ismonthly, monthlyLevelsStyleInput, monthlyLevelsColorInput)
+
+//---------------------------------------------------------------------------------------------------------------------
+// SMC BREAKER BLOCKS
+//---------------------------------------------------------------------------------------------------------------------
+type bbOb
+    float top = na
+    float btm = na
+    int loc = bar_index
+    bool breaker = false
+    int break_loc = na
+
+type bbSwing
+    float y = na
+    int x = na
+    bool crossed = false
+
+var array<bbOb> bbBullishObs = array.new<bbOb>(0)
+var array<bbOb> bbBearishObs = array.new<bbOb>(0)
+
+bbSwings(int len) =>
+    var os = 0
+    var bbSwing t = bbSwing.new(na, na)
+    var bbSwing b = bbSwing.new(na, na)
+
+    upper = ta.highest(len)
+    lower = ta.lowest(len)
+
+    os := high[len] > upper ? 0 : low[len] < lower ? 1 : os
+
+    if os == 0 and os[1] != 0
+        t := bbSwing.new(high[len], bar_index[len])
+
+    if os == 1 and os[1] != 1
+        b := bbSwing.new(low[len], bar_index[len])
+
+    [t, b]
+
+method bbNoTransp(color css) => color.rgb(color.r(css), color.g(css), color.b(css))
+
+// Updates one slot's pooled box/line/label objects in place instead of deleting and recreating them
+method bbApply(bbOb id, box boxA, box boxB, line lineTop1, line lineBtm1, line lineTop2, line lineBtm2, label lbl, string tag, color css, color breakCss) =>
+    if id.breaker
+        // pre-break segment (original OB span) - optional
+        if bbShowPreBreakInput
+            boxA.set_lefttop(id.loc, id.top)
+            boxA.set_rightbottom(id.break_loc, id.btm)
+            boxA.set_border_color(css.bbNoTransp())
+            boxA.set_bgcolor(css)
+            boxA.set_extend(extend.none)
+
+            lineTop1.set_xy1(id.loc, id.top)
+            lineTop1.set_xy2(id.break_loc, id.top)
+            lineTop1.set_color(css.bbNoTransp())
+            lineTop1.set_style(line.style_solid)
+            lineTop1.set_extend(extend.none)
+
+            lineBtm1.set_xy1(id.loc, id.btm)
+            lineBtm1.set_xy2(id.break_loc, id.btm)
+            lineBtm1.set_color(css.bbNoTransp())
+            lineBtm1.set_style(line.style_solid)
+            lineBtm1.set_extend(extend.none)
+        else
+            boxA.set_border_color(color(na))
+            boxA.set_bgcolor(color(na))
+            lineTop1.set_color(color(na))
+            lineBtm1.set_color(color(na))
+
+        // breaker zone (from break bar, extended right)
+        boxB.set_lefttop(id.break_loc, id.top)
+        boxB.set_rightbottom(time + 1, id.btm)
+        boxB.set_border_color(breakCss.bbNoTransp())
+        boxB.set_bgcolor(breakCss)
+        boxB.set_extend(extend.right)
+
+        lineTop2.set_xy1(id.break_loc, id.top)
+        lineTop2.set_xy2(time + 1, id.top)
+        lineTop2.set_color(breakCss.bbNoTransp())
+        lineTop2.set_style(line.style_dashed)
+        lineTop2.set_extend(extend.right)
+
+        lineBtm2.set_xy1(id.break_loc, id.btm)
+        lineBtm2.set_xy2(time + 1, id.btm)
+        lineBtm2.set_color(breakCss.bbNoTransp())
+        lineBtm2.set_style(line.style_dashed)
+        lineBtm2.set_extend(extend.right)
+
+        // breaker label (sits at the current candle, in the middle of the breaker zone)
+        lbl.set_point(chart.point.new(na, last_bar_index, 0.5 * (id.top + id.btm)))
+        lbl.set_text(bbShowTagInput ? tag : '')
+        lbl.set_textcolor(breakCss.bbNoTransp())
+        lbl.set_size(bbLabelSizeInput)
+    else
+        boxA.set_lefttop(id.loc, id.top)
+        boxA.set_rightbottom(time, id.btm)
+        boxA.set_border_color(color(na))
+        boxA.set_bgcolor(css)
+        boxA.set_extend(extend.right)
+
+        boxB.set_border_color(color(na))
+        boxB.set_bgcolor(color(na))
+
+        lineTop1.set_xy1(id.loc, id.top)
+        lineTop1.set_xy2(time, id.top)
+        lineTop1.set_color(css.bbNoTransp())
+        lineTop1.set_style(line.style_solid)
+        lineTop1.set_extend(extend.right)
+
+        lineBtm1.set_xy1(id.loc, id.btm)
+        lineBtm1.set_xy2(time, id.btm)
+        lineBtm1.set_color(css.bbNoTransp())
+        lineBtm1.set_style(line.style_solid)
+        lineBtm1.set_extend(extend.right)
+
+        lineTop2.set_color(color(na))
+        lineBtm2.set_color(color(na))
+        lbl.set_text('')
+
+// Hides a pooled slot that currently has no order block assigned to it
+bbHideSlot(box boxA, box boxB, line lineTop1, line lineBtm1, line lineTop2, line lineBtm2, label lbl) =>
+    boxA.set_border_color(color(na))
+    boxA.set_bgcolor(color(na))
+    boxB.set_border_color(color(na))
+    boxB.set_bgcolor(color(na))
+    lineTop1.set_color(color(na))
+    lineBtm1.set_color(color(na))
+    lineTop2.set_color(color(na))
+    lineBtm2.set_color(color(na))
+    lbl.set_text('')
+
+bbN = bar_index
+bbMax = bbUseBodyInput ? math.max(close, open) : high
+bbMin = bbUseBodyInput ? math.min(close, open) : low
+
+bbEffectiveLength = bbLengthSourceInput == 'Swing Structure' ? bbSwingLengthInput : bbLengthSourceInput == 'Internal Structure' ? bbInternalLengthInput : bbLengthInput
+
+[bbTop, bbBtm] = bbSwings(bbEffectiveLength)
+
+// Bullish OB
+bbBullConf = 0
+
+if close > bbTop.y and not bbTop.crossed
+    bbTop.crossed := true
+
+    minima = bbMax[1]
+    maxima = bbMin[1]
+    loc = time[1]
+
+    for i = 1 to (bbN - bbTop.x) - 1
+        minima := math.min(bbMin[i], minima)
+        maxima := minima == bbMin[i] ? bbMax[i] : maxima
+        loc := minima == bbMin[i] ? time[i] : loc
+    bbBullishObs.unshift(bbOb.new(maxima, minima, loc))
+
+if bbBullishObs.size() > 0
+    for i = bbBullishObs.size() - 1 to 0
+        element = bbBullishObs.get(i)
+
+        if not element.breaker
+            if math.min(close, open) < element.btm
+                element.breaker := true
+                element.break_loc := time
+        else
+            if close > element.top
+                bbBullishObs.remove(i)
+            else if i < bbShowBullInput and bbTop.y < element.top and bbTop.y > element.btm
+                bbBullConf := 1
+
+if bbBullConf > bbBullConf[1] and smc_f_on and smc_bb_master
+    currentAlerts.bullishBreakerBlock := true
+    if bbShowLabelsInput
+        label.new(bbTop.x, bbTop.y, '▼', color = color(na), textcolor = bbBearCssInput.bbNoTransp(), style = label.style_label_down, size = size.tiny)
+
+// Bearish OB
+bbBearConf = 0
+
+if close < bbBtm.y and not bbBtm.crossed
+    bbBtm.crossed := true
+    minima = bbMin[1]
+    maxima = bbMax[1]
+    loc = time[1]
+
+    for i = 1 to (bbN - bbBtm.x) - 1
+        maxima := math.max(bbMax[i], maxima)
+        minima := maxima == bbMax[i] ? bbMin[i] : minima
+        loc := maxima == bbMax[i] ? time[i] : loc
+
+    bbBearishObs.unshift(bbOb.new(maxima, minima, loc))
+if bbBearishObs.size() > 0
+    for i = bbBearishObs.size() - 1 to 0
+        element = bbBearishObs.get(i)
+
+        if not element.breaker
+            if math.max(close, open) > element.top
+                element.breaker := true
+                element.break_loc := time
+        else
+            if close < element.btm
+                bbBearishObs.remove(i)
+            else if i < bbShowBearInput and bbBtm.y > element.btm and bbBtm.y < element.top
+                bbBearConf := 1
+
+if bbBearConf > bbBearConf[1] and smc_f_on and smc_bb_master
+    currentAlerts.bearishBreakerBlock := true
+    if bbShowLabelsInput
+        label.new(bbBtm.x, bbBtm.y, '▲', color = color(na), textcolor = bbBullCssInput.bbNoTransp(), style = label.style_label_up, size = size.tiny)
+
+// Draw - breaker blocks only (unbroken OBs are skipped)
+if barstate.islast and bbShowInput
+    if bbShowBullInput > 0
+        int bullSlot = 0
+        if showBreakerBullishInput and bbBullishObs.size() > 0
+            for i = 0 to bbBullishObs.size() - 1
+                bbOb obj = bbBullishObs.get(i)
+                if obj.breaker and bullSlot < bbShowBullInput
+                    obj.bbApply(bbBullBoxA.get(bullSlot), bbBullBoxB.get(bullSlot), bbBullLineTop1.get(bullSlot), bbBullLineBtm1.get(bullSlot), bbBullLineTop2.get(bullSlot), bbBullLineBtm2.get(bullSlot), bbBullLabels.get(bullSlot), 'Bull BB', bbBullCssInput, bbBullBreakCssInput)
+                    bullSlot += 1
+        if bullSlot < bbShowBullInput
+            for s = bullSlot to bbShowBullInput - 1
+                bbHideSlot(bbBullBoxA.get(s), bbBullBoxB.get(s), bbBullLineTop1.get(s), bbBullLineBtm1.get(s), bbBullLineTop2.get(s), bbBullLineBtm2.get(s), bbBullLabels.get(s))
+
+    if bbShowBearInput > 0
+        int bearSlot = 0
+        if showBreakerBearishInput and bbBearishObs.size() > 0
+            for i = 0 to bbBearishObs.size() - 1
+                bbOb obj = bbBearishObs.get(i)
+                if obj.breaker and bearSlot < bbShowBearInput
+                    obj.bbApply(bbBearBoxA.get(bearSlot), bbBearBoxB.get(bearSlot), bbBearLineTop1.get(bearSlot), bbBearLineBtm1.get(bearSlot), bbBearLineTop2.get(bearSlot), bbBearLineBtm2.get(bearSlot), bbBearLabels.get(bearSlot), 'Bear BB', bbBearCssInput, bbBearBreakCssInput)
+                    bearSlot += 1
+        if bearSlot < bbShowBearInput
+            for s = bearSlot to bbShowBearInput - 1
+                bbHideSlot(bbBearBoxA.get(s), bbBearBoxB.get(s), bbBearLineTop1.get(s), bbBearLineBtm1.get(s), bbBearLineTop2.get(s), bbBearLineBtm2.get(s), bbBearLabels.get(s))
+
+//---------------------------------------------------------------------------------------------------------------------
+// SMC ALERTS
+// alert() based (does not count toward the 64 plot limit)
+// Create the TradingView alert with Condition = this indicator and Any alert() function call
+// Each event type can be switched on/off in the "Alert Filters" input group
+//---------------------------------------------------------------------------------------------------------------------
+smc_alert_gate = smc_f_on and smc_alert_master and alert_smc_events
+
+f_dir_ok(bool isBull) =>
+    af_smc_dir == 'Both' or (af_smc_dir == 'Bullish only' and isBull) or (af_smc_dir == 'Bearish only' and not isBull)
+
+f_smc_alert(bool fire, bool enabled, bool isBull, string msg) =>
+    if smc_alert_gate and fire and enabled and f_dir_ok(isBull)
+        alert(msg, alert_frequency)
+
+// per-feature enable = Alert Filter AND the feature's master switch
+sa_int_bos = af_int_bos and smc_struct_master
+sa_int_choch = af_int_choch and smc_struct_master
+sa_sw_bos = af_sw_bos and smc_struct_master
+sa_sw_choch = af_sw_choch and smc_struct_master
+sa_ob = af_ob and smc_ob_master
+sa_eq = af_eq and smc_eq_master
+sa_fvg = af_fvg and smc_fvg_master
+sa_htf_fvg = af_htf_fvg and smc_htf_fvg_master
+sa_htf_ob = af_htf_ob and smc_htf_ob_master
+sa_bb = af_bb and smc_bb_master
+
+// Structure
+f_smc_alert(currentAlerts.internalBullishBOS, sa_int_bos, true, 'Internal Bullish BOS formed')
+f_smc_alert(currentAlerts.internalBearishBOS, sa_int_bos, false, 'Internal Bearish BOS formed')
+f_smc_alert(currentAlerts.internalBullishCHoCH, sa_int_choch, true, 'Internal Bullish CHoCH formed')
+f_smc_alert(currentAlerts.internalBearishCHoCH, sa_int_choch, false, 'Internal Bearish CHoCH formed')
+f_smc_alert(currentAlerts.swingBullishBOS, sa_sw_bos, true, 'Bullish BOS formed')
+f_smc_alert(currentAlerts.swingBearishBOS, sa_sw_bos, false, 'Bearish BOS formed')
+f_smc_alert(currentAlerts.swingBullishCHoCH, sa_sw_choch, true, 'Bullish CHoCH formed')
+f_smc_alert(currentAlerts.swingBearishCHoCH, sa_sw_choch, false, 'Bearish CHoCH formed')
+
+// Order block breakouts
+f_smc_alert(currentAlerts.internalBullishOrderBlock, sa_ob, true, 'Price broke bullish internal OB')
+f_smc_alert(currentAlerts.internalBearishOrderBlock, sa_ob, false, 'Price broke bearish internal OB')
+f_smc_alert(currentAlerts.swingBullishOrderBlock, sa_ob, true, 'Price broke bullish swing OB')
+f_smc_alert(currentAlerts.swingBearishOrderBlock, sa_ob, false, 'Price broke bearish swing OB')
+
+// Equal highs / lows
+f_smc_alert(currentAlerts.equalHighs, sa_eq, false, 'Equal highs detected')
+f_smc_alert(currentAlerts.equalLows, sa_eq, true, 'Equal lows detected')
+
+// Fair value gaps
+f_smc_alert(currentAlerts.bullishFairValueGap, sa_fvg, true, 'Bullish FVG formed')
+f_smc_alert(currentAlerts.bearishFairValueGap, sa_fvg, false, 'Bearish FVG formed')
+
+// HTF fair value gaps
+f_smc_alert(currentAlerts.htf1BullishFVG, sa_htf_fvg, true, 'Bullish HTF1 FVG formed')
+f_smc_alert(currentAlerts.htf1BearishFVG, sa_htf_fvg, false, 'Bearish HTF1 FVG formed')
+f_smc_alert(currentAlerts.htf2BullishFVG, sa_htf_fvg, true, 'Bullish HTF2 FVG formed')
+f_smc_alert(currentAlerts.htf2BearishFVG, sa_htf_fvg, false, 'Bearish HTF2 FVG formed')
+
+// HTF order blocks
+f_smc_alert(currentAlerts.htf1BullishOB, sa_htf_ob, true, 'Bullish HTF1 OB formed')
+f_smc_alert(currentAlerts.htf1BearishOB, sa_htf_ob, false, 'Bearish HTF1 OB formed')
+f_smc_alert(currentAlerts.htf2BullishOB, sa_htf_ob, true, 'Bullish HTF2 OB formed')
+f_smc_alert(currentAlerts.htf2BearishOB, sa_htf_ob, false, 'Bearish HTF2 OB formed')
+
+// Breaker blocks
+f_smc_alert(currentAlerts.bullishBreakerBlock, sa_bb, true, 'Bullish breaker block confirmed')
+f_smc_alert(currentAlerts.bearishBreakerBlock, sa_bb, false, 'Bearish breaker block confirmed')
