@@ -1,0 +1,346 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Kavin_Palanisamy
+
+//@version=6
+indicator("Pocket Pivot Volume", overlay=false, format=format.volume, max_labels_count=500)
+
+// ───────── INPUTS ─────────
+gLook = "USER INPUTS"
+ppLook     = input.int(10, "Pocket Pivot Lookback", options=[5, 10, 15, 20], group=gLook, tooltip="Pocket Pivot is an up volume greater than the highest down volume of the last n trading bars. The default value of n bars here is 10.")
+avgLook    = input.int(50, "Volume Average Lookback", minval=1, group=gLook, tooltip="Lookback period for average volume beyond which the volume bars will display colored. All bars below this will be gray. The default value here is 50.")
+rvLook     = input.int(20, "Relative Volume Lookback", minval=1, group=gLook, tooltip="Relative Volume % is the volume for each price bar compared with the average volume over n number of previous bars. The default value of n bars here is 20.")
+udLook     = input.int(20, "Up Down Volume Lookback", minval=1, group=gLook, tooltip="Up/Down volume ratio is the sum of the volume on up bars divided by the sum of the volume on down bars for n number of bars.")
+bsLook     = input.int(50, "Bull Snort Volume Average Lookback", minval=1, group=gLook, tooltip="Lookback period for average volume used to calculate bull snorts")
+turnMethod = input.string("50 period", "Turnover Calculation Method", options=["10 period", "20 period", "50 period", "Minimum of 10/20/50"], group=gLook, tooltip="Select how the turnover is calculated.")
+turnType   = input.string("SMA", "Turnover Calculation Type", options=["SMA", "EMA", "VWAP"], group=gLook, tooltip="Choose between SMA, EMA or VWAP for turnover calculation. VWAP uses the volume weighted average price (hlc3, resetting each session) multiplied by volume, then averaged over the selected period.")
+
+gDisp = "DISPLAY OPTIONS"
+darkMode     = input.bool(false, "Dark Mode", group=gDisp)
+colPrevClose = input.bool(false, "Color based on previous close", group=gDisp)
+showDry      = input.bool(true, "Display Dry Volumes lesser than 1/", group=gDisp)
+dryDiv       = input.int(5, "Dry divisor", options=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10], group=gDisp, tooltip="Volumes with more than 1/n drop from 50-day average volumes are dry volumes. The default value of n here is 5.")
+showPower    = input.bool(false, "Display Power Volumes greater than", group=gDisp)
+powerThresh  = input.int(500000, "Power volume threshold", options=[100000, 250000, 500000, 1000000, 2000000, 3000000, 4000000, 5000000], group=gDisp, tooltip="Power Volumes are volumes beyond a certain number (default is half million) where price moves a minimum of 5%.")
+powerDown    = input.bool(true, "Show Power Volumes for Down Days?", group=gDisp, tooltip="If disabled, power volumes on down days will not be highlighted.")
+showProj     = input.bool(true, "Display Projected Volume Bar?", group=gDisp, tooltip="Project the final volume for the current day based on volume per second so far.")
+showSnort    = input.bool(false, "Display Bull Snort?", group=gDisp, tooltip="For a bull snort, a candle should have at least 3 times its average daily volume, with the price closing in its upper high range, & the current close above the previous close")
+
+gTbl = "TABLE CUSTOMISATION"
+tblSize  = input.string("small", "Table size", options=["tiny", "small", "normal", "large"], group=gTbl)
+tblV     = input.string("top", "Vertical", options=["top", "middle", "bottom"], group=gTbl)
+tblH     = input.string("right", "Horizontal", options=["left", "center", "right"], group=gTbl)
+tblHoriz = input.bool(true, "Horizontal Table?", group=gTbl)
+noTblCol = input.bool(false, "Do not display colors in table?", group=gTbl)
+turnThr  = input.float(5, "Turnover Background Color Threshold", group=gTbl, tooltip="Set the turnover value above which the background will be green (UpColor).")
+rvThr    = input.float(100, "RVol Background Color Threshold", group=gTbl, tooltip="Set the vol_pct value above which the background will be green (UpColor).")
+mlThr    = input.float(0.5, "1mL Background Color Threshold", group=gTbl, tooltip="Set the 1mL value threshold above which the background will be green. (Default is 0.5 Cr)")
+
+gTog = "TABLE TOGGLES"
+showAvgTurn = input.bool(true, "Display Average ₹ Volume?", group=gTog, tooltip="Average dollar volume is the average volume multiplied by the average price of the stock.")
+turnUnit    = input.string("Crores", "Display Average ₹/$ Volume Units as", options=["Crores", "Lakhs", "Millions", "Billions"], group=gTog)
+show1mL     = input.bool(true, "Display 1-minute Liquidity?", group=gTog, tooltip="Display the One Minute Liquidity (1ML) in the table.")
+showUDR     = input.bool(false, "Display Up Down volume Ratio?", group=gTog, tooltip="Up/Down volume ratio is the sum of the volume on up bars divided by the sum of the volume on down bars.")
+showRVol    = input.bool(true, "Display RVol?", group=gTog, tooltip="Relative Volume of +200% means that the stock is trading 100% more than its average volume.")
+showProjRV  = input.bool(false, "Display Projected RVol in the table?", group=gTog, tooltip="Display the projected relative volume (Projected Volume / Average Volume) as a multiplier on the table.")
+useTVRV     = input.bool(false, "Display Rvol as TradingView RVol?", group=gTog, tooltip="Relative Volume consists of Volume divided by Average Volume, not taking into account the current volume bar.")
+useBuzz     = input.bool(false, "Display Rvol as Volume Buzz Rvol?", group=gTog, tooltip="Volume buzz of +100% means that the stock is trading 100% more than its average volume.")
+
+gCol = "COLOR CUSTOMISATION"
+cLight   = input.color(#2E3040, "Light mode default", group=gCol)
+cDark    = input.color(#787B86, "Dark mode default", group=gCol)
+cMA      = input.color(#8B4C4C, "Background Color for MA value", group=gCol)
+cPocket  = input.color(#4A90E8, "Pocket Pivot Volume Color", group=gCol)
+cDry     = input.color(#F09A3A, "Dry Volume Color", group=gCol)
+cUp      = input.color(#5FAF5F, "High Up Volume Color", group=gCol)
+cDown    = input.color(#EB5C56, "High Down Volume Color", group=gCol)
+cPwrUp   = input.color(#CBE5CB, "Power Volume Up Color", group=gCol)
+cPwrDn   = input.color(#F2C6C2, "Power Volume Down Color", group=gCol)
+cIPO     = input.color(#4A90E8, "IPO Volume Bar Color", group=gCol)
+cHVE     = input.color(#4A90E8, "HVE Volume Bar Color", group=gCol)
+cHVY     = input.color(#4A90E8, "HVY Volume Bar Color", group=gCol)
+cHVQ     = input.color(#4A90E8, "HVQ Volume Bar Color", group=gCol)
+
+gHV = "HIGHEST VOLUME"
+showHV      = input.bool(true, "Show Highest Volumes?", group=gHV, tooltip="Highest Volume Ever (HVE), Highest Volume in a Year (HVY), & Highest Volume in a quarter (HVQ) can be used to gauge institutional accumulation & highest probabilities of the stock turning into a big winner.")
+onlyHVE     = input.bool(true, "Show Only Latest HVE?", group=gHV)
+onlyHVY     = input.bool(true, "Show Only Latest HVY?", group=gHV)
+onlyHVQ     = input.bool(true, "Show Only Latest HVQ?", group=gHV)
+showDataAll = input.bool(true, "Show Data on All HV?", group=gHV)
+showHVPct   = input.bool(false, "Show Highest Volume %?", group=gHV, tooltip="Display the highest volume percentage (e.g. 200%) in the label.")
+showHVVal   = input.bool(true, "Show Highest Volume value?", group=gHV, tooltip="Display the formatted volume (e.g. '9.52M') in the label.")
+hvUpOnly    = input.bool(true, "Color Highest Volumes Only on Up Days?", group=gHV, tooltip="If enabled, custom colors for HVE/HVY/HVQ are applied only on up days. On down days, the default bar color is used.")
+hvyBars     = input.int(252, "HVY lookback (bars)", minval=2, group=gHV)
+hvqBars     = input.int(63, "HVQ lookback (bars)", minval=2, group=gHV)
+
+gLV = "LOWEST VOLUME"
+showLow = input.bool(true, "Show Lowest Volumes?", group=gLV, tooltip="Lowest Volumes in a year (LVY) & Lowest Volumes in a quarter (LVQ) are indicated by an orange Q or Y label above the respective volume bars.")
+onlyLVY = input.bool(true, "Show Only Latest LVY?", group=gLV)
+onlyLVQ = input.bool(true, "Show Only Latest LVQ?", group=gLV)
+
+gPaintOpt = "PAINT PRICE BARS OPTIONS"
+paintBars = input.bool(false, "Paint Price Bars?", group=gPaintOpt, tooltip="Paint bars option changes the bar colors to mirror the Simple Volume colors.")
+preserve  = input.bool(true, "Preserve Default Price Bar Colors", group=gPaintOpt, tooltip="If enabled, bars that do not meet any of the painted conditions will remain unchanged.")
+
+gPaintSel = "CHOOSE WHICH PRICE BARS TO PAINT"
+pPocket = input.bool(true, "Paint Pocket Pivot volumes", group=gPaintSel, tooltip="Paint bars for Pocket Pivot volumes")
+pHVE    = input.bool(true, "Paint HVE volumes", group=gPaintSel, tooltip="Paint bars for Highest Volume Ever (HVE) volumes")
+pHVY    = input.bool(true, "Paint HVY volumes", group=gPaintSel, tooltip="Paint bars for Highest Volume in a Year (HVY) volumes")
+pHVQ    = input.bool(true, "Paint HVQ volumes", group=gPaintSel, tooltip="Paint bars for Highest Volume in a Quarter (HVQ) volumes")
+pPower  = input.bool(true, "Paint Power volumes", group=gPaintSel, tooltip="Paint bars for Power volumes")
+pDry    = input.bool(true, "Paint Dry volumes", group=gPaintSel, tooltip="Paint bars for Dry volumes")
+pGreen  = input.bool(true, "Paint Green volumes", group=gPaintSel, tooltip="Paint bars for Green volumes")
+pRed    = input.bool(true, "Paint Red volumes", group=gPaintSel, tooltip="Paint bars for Red volumes")
+
+// ───────── CORE CALCULATIONS ─────────
+isUp   = colPrevClose ? close > close[1] : close >= open
+volSMA = ta.sma(volume, avgLook)
+
+// Pocket Pivot: up bar with volume above the highest down-day volume in last N bars
+downVol     = close < close[1] ? volume : 0.0
+hiDownVol   = ta.highest(downVol[1], ppLook)
+pocketPivot = close > close[1] and volume > hiDownVol
+
+// Power volume: volume above threshold AND price moves a minimum of 5% versus the previous close
+powerMinMove = 5.0
+priceMovePct = close[1] > 0 ? math.abs(close - close[1]) / close[1] * 100 : 0.0
+
+// Dry / Power / High up-down
+isDry   = showDry and volume < volSMA / dryDiv
+isPower = showPower and volume > powerThresh and priceMovePct >= powerMinMove and (isUp or powerDown)
+highUp  = volume > volSMA and isUp
+highDn  = volume > volSMA and not isUp
+
+// Highest / lowest volume markers
+var float hveVal = 0.0
+newHVE = volume > hveVal
+if newHVE
+    hveVal := volume
+hvyMax = ta.highest(volume, hvyBars)
+hvqMax = ta.highest(volume, hvqBars)
+lvyMin = ta.lowest(volume, hvyBars)
+lvqMin = ta.lowest(volume, hvqBars)
+
+isHVE  = showHV and newHVE and bar_index > 0
+newHVY = showHV and volume >= hvyMax and not newHVE
+newHVQ = showHV and volume >= hvqMax and not newHVE and not newHVY
+gateUp = not hvUpOnly or isUp
+newLVY = showLow and volume <= lvyMin
+newLVQ = showLow and volume <= lvqMin and not newLVY
+
+// IPO bar (first bar in history)
+isIPO = bar_index == 0
+
+// Bull Snort: at least 3x average volume, close in the upper range, and close above the previous close
+bsSMA     = ta.sma(volume, bsLook)
+barRange  = math.max(high - low, syminfo.mintick)
+bullSnort = volume >= 3 * bsSMA and close > close[1] and (close - low) / barRange > 0.66
+
+// Projected volume (realtime bar only)
+tfSec   = timeframe.in_seconds()
+elapsed = (timenow - time) / 1000.0
+projVol = barstate.islast and barstate.isrealtime and elapsed > 0 and elapsed < tfSec ? volume * tfSec / elapsed : na
+
+// ───────── COLOR PRIORITY ─────────
+color baseCol = darkMode ? cDark : cLight
+color volCol = baseCol
+if isIPO
+    volCol := cIPO
+else if isHVE and gateUp
+    volCol := cHVE
+else if newHVY and gateUp
+    volCol := cHVY
+else if newHVQ and gateUp
+    volCol := cHVQ
+else if pocketPivot
+    volCol := cPocket
+else if isPower
+    volCol := isUp ? cPwrUp : cPwrDn
+else if isDry
+    volCol := cDry
+else if highUp
+    volCol := cUp
+else if highDn
+    volCol := cDown
+
+// ───────── PLOTS ─────────
+bgcolor(volume > volSMA * 2 ? color.new(cMA, 88) : na, title="Background Color")
+plot(volume, "Vol", color=volCol, style=plot.style_columns)
+plot(volSMA, "SMA", color=color.orange, linewidth=1)
+plotshape(showSnort and bullSnort, "Bull Snort", shape.circle, location.bottom, color=color.aqua, size=size.tiny)
+plot(showProj ? projVol : na, "Projected Volume", color=color.new(color.gray, 60), style=plot.style_columns)
+
+// ───────── HV / LV LABELS ─────────
+fmtVol(float v) =>
+    v >= 1e9 ? str.tostring(v / 1e9, "#.##") + "B" : v >= 1e6 ? str.tostring(v / 1e6, "#.##") + "M" : v >= 1e3 ? str.tostring(v / 1e3, "#.##") + "K" : str.tostring(v, "#")
+
+// Volume as % of the average volume
+float hvPct = volSMA > 0 ? volume / volSMA * 100 : na
+
+// Data part of a highest-volume label
+hvData(float v, float pct) =>
+    string s = ""
+    if showHVVal
+        s += " " + fmtVol(v)
+    if showHVPct and not na(pct)
+        s += " " + str.tostring(pct, "#") + "%"
+    s
+
+mkHigh(string txt, float v, float pct, color c) =>
+    label.new(bar_index, v, txt + hvData(v, pct), style=label.style_label_down, color=color.new(c, 100), textcolor=c, size=size.tiny)
+
+// Lowest volume: orange "Y" / "Q" label above the bar
+mkLow(string txt, float v, color c) =>
+    label.new(bar_index, v, txt, style=label.style_label_down, color=color.new(c, 100), textcolor=c, size=size.tiny)
+
+var label lHVE = na
+var label lHVY = na
+var label lHVQ = na
+var label lLVY = na
+var label lLVQ = na
+
+if isHVE and gateUp
+    if onlyHVE
+        label.delete(lHVE)
+    else if not showDataAll and not na(lHVE)
+        label.set_text(lHVE, "HVE")
+    lHVE := mkHigh("HVE", volume, hvPct, cHVE)
+if newHVY and gateUp
+    if onlyHVY
+        label.delete(lHVY)
+    else if not showDataAll and not na(lHVY)
+        label.set_text(lHVY, "HVY")
+    lHVY := mkHigh("HVY", volume, hvPct, cHVY)
+if newHVQ and gateUp
+    if onlyHVQ
+        label.delete(lHVQ)
+    else if not showDataAll and not na(lHVQ)
+        label.set_text(lHVQ, "HVQ")
+    lHVQ := mkHigh("HVQ", volume, hvPct, cHVQ)
+if newLVY
+    if onlyLVY
+        label.delete(lLVY)
+    lLVY := mkLow("Y", volume, cDry)
+if newLVQ
+    if onlyLVQ
+        label.delete(lLVQ)
+    lLVQ := mkLow("Q", volume, cDry)
+
+// ───────── PAINT PRICE BARS ─────────
+// Preserve ON  -> non-matching bars stay unchanged (na)
+// Preserve OFF -> non-matching bars get the default volume colour
+color paintCol = preserve ? na : baseCol
+if pPocket and pocketPivot
+    paintCol := cPocket
+else if pHVE and isHVE
+    paintCol := cHVE
+else if pHVY and newHVY
+    paintCol := cHVY
+else if pHVQ and newHVQ
+    paintCol := cHVQ
+else if pPower and isPower
+    paintCol := isUp ? cPwrUp : cPwrDn
+else if pDry and isDry
+    paintCol := cDry
+else if pGreen and highUp
+    paintCol := cUp
+else if pRed and highDn
+    paintCol := cDown
+
+barcolor(paintBars ? paintCol : na)
+
+// ───────── TABLE CALCULATIONS ─────────
+turnover = close * volume
+
+// VWAP-based turnover: session VWAP (hlc3) multiplied by volume
+vwapTurnover = ta.vwap(hlc3) * volume
+
+// Turnover averages for 10 / 20 / 50 periods
+sma10 = ta.sma(turnover, 10)
+sma20 = ta.sma(turnover, 20)
+sma50 = ta.sma(turnover, 50)
+ema10 = ta.ema(turnover, 10)
+ema20 = ta.ema(turnover, 20)
+ema50 = ta.ema(turnover, 50)
+vwp10 = ta.sma(vwapTurnover, 10)
+vwp20 = ta.sma(vwapTurnover, 20)
+vwp50 = ta.sma(vwapTurnover, 50)
+
+// Turnover Calculation Type
+avg10 = turnType == "SMA" ? sma10 : turnType == "EMA" ? ema10 : vwp10
+avg20 = turnType == "SMA" ? sma20 : turnType == "EMA" ? ema20 : vwp20
+avg50 = turnType == "SMA" ? sma50 : turnType == "EMA" ? ema50 : vwp50
+
+// Turnover Calculation Method
+avgTurn = turnMethod == "10 period" ? avg10 : turnMethod == "20 period" ? avg20 : turnMethod == "50 period" ? avg50 : math.min(avg10, avg20, avg50)
+
+turnDiv    = turnUnit == "Crores" ? 1e7 : turnUnit == "Lakhs" ? 1e5 : turnUnit == "Millions" ? 1e6 : 1e9
+turnDisp   = avgTurn / turnDiv
+turnSuffix = turnUnit == "Crores" ? " Cr" : turnUnit == "Lakhs" ? " L" : turnUnit == "Millions" ? " M" : " B"
+
+minsPerBar = timeframe.isintraday ? tfSec / 60.0 : 375.0 * math.max(tfSec / 86400.0, 1.0)
+oneMinL    = avgTurn / minsPerBar / 1e5
+
+// ───────── RVOL VARIANTS ─────────
+rvSMA     = ta.sma(volume, rvLook)
+rvSMAPrev = ta.sma(volume[1], rvLook)
+
+rvolStd = rvSMA == 0 ? na : volume / rvSMA * 100
+rvolTV  = (na(rvSMAPrev) or rvSMAPrev == 0) ? na : volume / rvSMAPrev
+rvolBz  = (na(rvSMAPrev) or rvSMAPrev == 0) ? na : (volume / rvSMAPrev - 1) * 100
+
+// Priority if both are ticked: TradingView RVol first
+rvMode  = useTVRV ? 1 : useBuzz ? 2 : 0
+rvol    = rvMode == 1 ? rvolTV : rvMode == 2 ? rvolBz : rvolStd
+rvolPct = rvMode == 1 ? rvolTV * 100 : rvMode == 2 ? rvolBz + 100 : rvolStd
+
+projRV = (na(projVol) or rvSMA == 0) ? na : projVol / rvSMA * 100
+
+upVol = close > close[1] ? volume : 0.0
+dnVol = close < close[1] ? volume : 0.0
+upV   = math.sum(upVol, udLook)
+dnV   = math.sum(dnVol, udLook)
+udr   = dnV == 0 ? na : upV / dnV
+
+// ───────── TABLE DISPLAY ─────────
+tSize = tblSize == "tiny" ? size.tiny : tblSize == "small" ? size.small : tblSize == "large" ? size.large : size.normal
+
+string posV = tblV
+string posH = tblH
+
+tPos = posV == "top" ? (posH == "left" ? position.top_left : posH == "center" ? position.top_center : position.top_right) : posV == "middle" ? (posH == "left" ? position.middle_left : posH == "center" ? position.middle_center : position.middle_right) : (posH == "left" ? position.bottom_left : posH == "center" ? position.bottom_center : position.bottom_right)
+
+color colGood = noTblCol ? color.new(color.gray, 60) : color.new(color.green, 60)
+color colBad  = noTblCol ? color.new(color.gray, 60) : color.new(color.red, 60)
+
+var table t = na
+if barstate.islast
+    if not na(t)
+        table.delete(t)
+    t := table.new(tPos, 6, 6, border_width=1)
+
+    items = array.new<string>()
+    cols  = array.new<color>()
+
+    if showAvgTurn and not na(turnDisp)
+        array.push(items, "AvgVol: " + str.tostring(turnDisp, "#.##") + turnSuffix)
+        array.push(cols, turnDisp >= turnThr ? colGood : colBad)
+    if showRVol and not na(rvol)
+        string rvTxt = rvMode == 1 ? "RVol: " + str.tostring(rvol, "#.##") + "x" : rvMode == 2 ? "Buzz: " + (rvol >= 0 ? "+" : "") + str.tostring(rvol, "#") + " %" : "RVol: " + str.tostring(rvol, "#") + " %"
+        array.push(items, rvTxt)
+        array.push(cols, rvolPct >= rvThr ? colGood : colBad)
+    if showProjRV and not na(projRV)
+        array.push(items, "pRVol: " + str.tostring(projRV / 100, "#.##") + "x")
+        array.push(cols, projRV >= rvThr ? colGood : colBad)
+    if show1mL and not na(oneMinL)
+        array.push(items, "1mL: " + str.tostring(oneMinL, "#.##") + " L")
+        array.push(cols, oneMinL >= mlThr ? colGood : colBad)
+    if showUDR and not na(udr)
+        array.push(items, "U/D: " + str.tostring(udr, "#.##"))
+        array.push(cols, udr >= 1 ? colGood : colBad)
+
+    int n = array.size(items)
+    if n > 0
+        for i = 0 to n - 1
+            int c = tblHoriz ? i : 0
+            int r = tblHoriz ? 0 : i
+            table.cell(t, c, r, array.get(items, i), text_color=color.white, text_size=tSize, bgcolor=array.get(cols, i))
