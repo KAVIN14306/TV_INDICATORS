@@ -1,0 +1,123 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Kavin_Palanisamy
+
+//@version=6
+indicator("Custom Intraday S & R", shorttitle="Custom S/R", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ================= INPUTS =================
+grp1 = "Anchor Candle (Custom Timeframe Slot)"
+sessionInput = input.session("0915-0920", title="Anchor Session Window", group=grp1,
+     tooltip="Set the time window whose candle close is used as the base. Set your CHART timeframe to match this window's duration (e.g. 5min window -> 5min chart) so it captures exactly one candle.")
+
+grp2 = "Percentage Settings"
+pctInput = input.float(0.09, title="Add/Subtract % from Close (for R1/S1)", step=0.01, group=grp2) / 100
+
+grp3 = "Difference Method (for R2-R5 / S2-S5)"
+methodInput = input.string("Method 1: % Difference (R1-S1)", title="Calculation Method", group=grp3,
+     options=["Method 1: % Difference (R1-S1)", "Method 2: Candle High-Low Range"])
+
+grp4 = "Levels Visibility (Toggle On/Off)"
+showR1 = input.bool(true, "R1", group=grp4, inline="l1")
+showS1 = input.bool(true, "S1", group=grp4, inline="l1")
+showR2 = input.bool(true, "R2", group=grp4, inline="l2")
+showS2 = input.bool(true, "S2", group=grp4, inline="l2")
+showR3 = input.bool(true, "R3", group=grp4, inline="l3")
+showS3 = input.bool(true, "S3", group=grp4, inline="l3")
+showR4 = input.bool(true, "R4", group=grp4, inline="l4")
+showS4 = input.bool(true, "S4", group=grp4, inline="l4")
+showR5 = input.bool(true, "R5", group=grp4, inline="l5")
+showS5 = input.bool(true, "S5", group=grp4, inline="l5")
+
+grp6 = "Historical Levels"
+lookbackDays = input.int(5, "Days of History (Lookback)", minval=1, maxval=50, group=grp6,
+     tooltip="How many past days' Support/Resistance sets to keep drawn on the chart.")
+
+grp5 = "Style"
+resColor    = input.color(color.new(color.red, 0), "Resistance Color", group=grp5)
+supColor    = input.color(color.new(color.lime, 0), "Support Color", group=grp5)
+lineWidthIn = input.int(1, "Line Width", minval=1, maxval=5, group=grp5)
+lineStyleIn = input.string("Solid", "Line Style", options=["Solid", "Dashed", "Dotted"], group=grp5)
+showLabels  = input.bool(true, "Show Price Labels", group=grp5)
+
+lineStyle = lineStyleIn == "Dashed" ? line.style_dashed : lineStyleIn == "Dotted" ? line.style_dotted : line.style_solid
+
+// ================= SESSION DETECTION =================
+t          = time(timeframe.period, sessionInput)
+inSession  = not na(t)
+sessStart  = inSession and not inSession[1]
+sessEnded  = not inSession and inSession[1]
+
+var float sessHigh = na
+var float sessLow  = na
+
+if sessStart
+    sessHigh := high
+    sessLow  := low
+else if inSession
+    sessHigh := math.max(sessHigh, high)
+    sessLow  := math.min(sessLow, low)
+
+// ================= LEVEL CALCULATION =================
+var float r1 = na, var float r2 = na, var float r3 = na, var float r4 = na, var float r5 = na
+var float s1 = na, var float s2 = na, var float s3 = na, var float s4 = na, var float s5 = na
+
+if sessEnded
+    baseClose = close[1]
+    r1 := baseClose * (1 + pctInput)
+    s1 := baseClose * (1 - pctInput)
+    diff = methodInput == "Method 1: % Difference (R1-S1)" ? (r1 - s1) : (sessHigh - sessLow)
+    r2 := r1 + diff
+    s2 := s1 - diff
+    r3 := r2 + diff
+    s3 := s2 - diff
+    r4 := r3 + diff
+    s4 := s3 - diff
+    r5 := r4 + diff
+    s5 := s4 - diff
+
+// ================= HISTORY ARRAYS (per level) =================
+var array<line>  r1Lines = array.new_line(), var array<label> r1Labels = array.new_label()
+var array<line>  r2Lines = array.new_line(), var array<label> r2Labels = array.new_label()
+var array<line>  r3Lines = array.new_line(), var array<label> r3Labels = array.new_label()
+var array<line>  r4Lines = array.new_line(), var array<label> r4Labels = array.new_label()
+var array<line>  r5Lines = array.new_line(), var array<label> r5Labels = array.new_label()
+var array<line>  s1Lines = array.new_line(), var array<label> s1Labels = array.new_label()
+var array<line>  s2Lines = array.new_line(), var array<label> s2Labels = array.new_label()
+var array<line>  s3Lines = array.new_line(), var array<label> s3Labels = array.new_label()
+var array<line>  s4Lines = array.new_line(), var array<label> s4Labels = array.new_label()
+var array<line>  s5Lines = array.new_line(), var array<label> s5Labels = array.new_label()
+
+
+// ================= LEVEL MANAGER =================
+// Draws a new day-length segment when a level is computed, keeps only
+// `lookback` most recent segments, extends the most recent one bar-by-bar
+// (so it spans exactly the current day), and attaches a price label.
+manageLevel(bool show, float price, color col, string lvlName, array<line> lines, array<label> labels, int lookback) =>
+    if sessEnded and show and not na(price)
+        newLine = line.new(bar_index, price, bar_index, price, extend=extend.none, color=col, width=lineWidthIn, style=lineStyle)
+        array.push(lines, newLine)
+        if showLabels
+            newLabel = label.new(bar_index, price, lvlName + ": " + str.tostring(price, "#.##"),
+                 style=label.style_label_left, textcolor=col, color=color.new(color.black, 100), size=size.small)
+            array.push(labels, newLabel)
+        while array.size(lines) > lookback
+            line.delete(array.shift(lines))
+        while array.size(labels) > lookback
+            label.delete(array.shift(labels))
+
+    if array.size(lines) > 0
+        line.set_x2(array.get(lines, array.size(lines) - 1), bar_index)
+    if showLabels and array.size(labels) > 0
+        label.set_x(array.get(labels, array.size(labels) - 1), bar_index)
+
+// ================= DRAW ALL LEVELS =================
+manageLevel(showR1, r1, resColor, "R1", r1Lines, r1Labels, lookbackDays)
+manageLevel(showR2, r2, resColor, "R2", r2Lines, r2Labels, lookbackDays)
+manageLevel(showR3, r3, resColor, "R3", r3Lines, r3Labels, lookbackDays)
+manageLevel(showR4, r4, resColor, "R4", r4Lines, r4Labels, lookbackDays)
+manageLevel(showR5, r5, resColor, "R5", r5Lines, r5Labels, lookbackDays)
+manageLevel(showS1, s1, supColor, "S1", s1Lines, s1Labels, lookbackDays)
+manageLevel(showS2, s2, supColor, "S2", s2Lines, s2Labels, lookbackDays)
+manageLevel(showS3, s3, supColor, "S3", s3Lines, s3Labels, lookbackDays)
+manageLevel(showS4, s4, supColor, "S4", s4Lines, s4Labels, lookbackDays)
+manageLevel(showS5, s5, supColor, "S5", s5Lines, s5Labels, lookbackDays)
