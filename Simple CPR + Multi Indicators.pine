@@ -12,7 +12,7 @@ CAMARILLA = 'Camarilla'
 // Input fields
 kind = input.string(title = 'Type', defval = TRADITIONAL, options = [TRADITIONAL, FIBONACCI, CLASSIC, CAMARILLA])
 
-// ——— CPR Indicator by KGS - Pivot Mode (Auto/Manual) ———
+// ——— CPR Indicator - Pivot Mode (Auto/Manual) ———
 pivot_mode = input.string('Auto', 'CPR Indicator by KGS - Select Pivot Mode', options = ['Auto', 'Manual'])
 
 manual_daily = input.bool(false, 'Show Daily CPR (Manual)')
