@@ -1,0 +1,94 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Kavin_Palanisamy
+
+//@version=6
+indicator("Probable Top Bottom Levels", shorttitle="Intraday Levels", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ===== Inputs =====
+refMode = input.string("Previous Day Close", "Reference Price", options=["Previous Day Close", "Day Open", "Anchor Candle Close", "Custom Price"], group="Reference")
+anchorSess = input.session("0915-0920", "Anchor Session Window", tooltip="Used when Reference Price = Anchor Candle Close. The close of the last candle inside this window becomes the P line. Chart timeframe should not be larger than the window.", group="Reference")
+customRef = input.float(0.0, "Custom Reference Price (0 = use mode above)", minval=0.0, group="Reference")
+showRef = input.bool(true, "Show P Line", group="Reference")
+
+stepMode = input.string("Percent", "Step Mode", options=["Percent", "Fixed Points", "Daily ATR Multiple"], group="Step")
+stepPct = input.float(0.22, "Step (%)", minval=0.001, step=0.01, group="Step")
+stepPts = input.float(50.0, "Step (Points)", minval=0.01, step=1.0, group="Step")
+atrLen = input.int(14, "Daily ATR Length", minval=1, group="Step")
+atrMult = input.float(0.2, "Daily ATR Multiple", minval=0.001, step=0.01, group="Step")
+compound = input.bool(true, "Compound Steps", group="Step")
+halfOffset = input.bool(false, "Half-Step Offset (levels at 0.5, 1.5, 2.5 ...)", group="Step")
+
+levelsSide = input.int(4, "Levels Each Side (R1.. / S1..)", minval=1, maxval=20, group="Levels")
+
+keepPrev = input.bool(true, "Keep Previous Days Lines And Labels", group="Style")
+extendLines = input.bool(true, "Extend Lines To Right", group="Style")
+topColor = input.color(color.red, "R Line Color", group="Style")
+botColor = input.color(color.red, "S Line Color", group="Style")
+refColor = input.color(color.gray, "P Line Color", group="Style")
+lnStyleIn = input.string("Solid", "Line Style", options=["Solid", "Dashed", "Dotted"], group="Style")
+lineW = input.int(1, "Line Width", minval=1, maxval=4, group="Style")
+
+showLabels = input.bool(true, "Show Labels", group="Labels")
+showPrice = input.bool(true, "Show Prices", group="Labels")
+lblPos = input.string("Left", "Labels Position", options=["Left", "Right"], group="Labels")
+refTextColor = input.color(color.blue, "P Label Text Color", group="Labels")
+topTextColor = input.color(color.red, "R Label Text Color", group="Labels")
+botTextColor = input.color(color.orange, "S Label Text Color", group="Labels")
+lblSizeIn = input.string("Small", "Label Size", options=["Tiny", "Small", "Normal"], group="Labels")
+lblOffset = input.int(3, "Label Offset When Right (bars past line end)", minval=0, maxval=100, group="Labels")
+
+// ===== Helpers =====
+styleOf(s) => s == "Dashed" ? line.style_dashed : s == "Dotted" ? line.style_dotted : line.style_solid
+sizeOf(s) => s == "Tiny" ? size.tiny : s == "Normal" ? size.normal : size.small
+
+// ===== Data =====
+newDay = timeframe.change("D")
+inWin = not na(time(timeframe.period, anchorSess))
+anchorEnd = inWin[1] and not inWin
+buildNow = refMode == "Anchor Candle Close" ? anchorEnd : newDay
+dAtr = request.security(syminfo.tickerid, "D", ta.atr(atrLen)[1], lookahead=barmerge.lookahead_on)
+var array<line> lns = array.new<line>()
+var array<label> lbs = array.new<label>()
+lnStyle = styleOf(lnStyleIn)
+lblSize = sizeOf(lblSizeIn)
+lblStyle = lblPos == "Left" ? label.style_label_right : label.style_label_left
+extMode = extendLines ? extend.right : extend.none
+
+// ===== Build levels at the start of each day (or when the anchor window ends) =====
+if buildNow
+    for l in lns
+        if keepPrev
+            line.set_extend(l, extend.none)
+            line.set_x2(l, bar_index - 1)
+        else
+            line.delete(l)
+    lns.clear()
+    for lb in lbs
+        if keepPrev
+            if lblPos == "Right"
+                label.set_x(lb, bar_index - 1 + lblOffset)
+        else
+            label.delete(lb)
+    lbs.clear()
+    float base = refMode == "Anchor Candle Close" ? close[1] : refMode == "Day Open" ? open : (refMode == "Custom Price" and customRef > 0) ? customRef : nz(close[1], open)
+    float sf = stepMode == "Fixed Points" ? stepPts / base : stepMode == "Daily ATR Multiple" ? nz(dAtr * atrMult / base, stepPct / 100.0) : stepPct / 100.0
+    for n = -levelsSide to levelsSide
+        if n == 0 and (halfOffset or not showRef)
+            continue
+        float m = halfOffset ? (n > 0 ? n - 0.5 : n + 0.5) : n * 1.0
+        float lvl = compound ? base * math.pow(1.0 + math.sign(m) * sf, math.abs(m)) : base * (1.0 + m * sf)
+        color c = n == 0 ? refColor : n > 0 ? topColor : botColor
+        color tc = n == 0 ? refTextColor : n > 0 ? topTextColor : botTextColor
+        lns.push(line.new(bar_index, lvl, bar_index + 1, lvl, extend=extMode, color=c, style=lnStyle, width=lineW))
+        string nm = n == 0 ? "P" : n > 0 ? "R" + str.tostring(math.abs(n)) : "S" + str.tostring(math.abs(n))
+        string txt = showPrice ? nm + " (" + str.tostring(lvl, format.mintick) + ")" : nm
+        if showLabels
+            lbs.push(label.new(bar_index, lvl, txt, color=color.new(color.white, 100), style=lblStyle, textcolor=tc, size=lblSize))
+
+// ===== Latest bar: line end and right-side label position =====
+if barstate.islast
+    for l in lns
+        line.set_x2(l, math.max(bar_index, line.get_x1(l) + 1))
+    if lblPos == "Right"
+        for lb in lbs
+            label.set_x(lb, bar_index + lblOffset)
