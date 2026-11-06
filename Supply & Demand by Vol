@@ -2,7 +2,7 @@
 // © Kavin_Palanisamy
 
 //@version=6
-indicator('S & R (High Volume Boxes)', shorttitle = 'SR Breaks and Retests', overlay = true, max_boxes_count = 50)
+indicator('Supply & Demand by Vol', shorttitle = 'SR Breaks and Retests', overlay = true, max_boxes_count = 50)
 
 // ---------------------------------------------------------------------------------------------------------------------}
 // 𝙐𝙎𝙀𝙍 𝙄𝙉𝙋𝙐𝙏𝙎
