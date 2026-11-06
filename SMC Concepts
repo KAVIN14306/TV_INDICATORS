@@ -2,7 +2,8 @@
 // © Kavin_Palanisamy
 
 //@version=6
-indicator('SMC Concepts', overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500)
+indicator('SMC Concepts', shorttitle = 'SMC', overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500)
+
 //---------------------------------------------------------------------------------------------------------------------}
 //CONSTANTS & STRINGS & INPUTS
 //---------------------------------------------------------------------------------------------------------------------{
@@ -43,16 +44,16 @@ SOLID                            = '⎯⎯⎯'
 DASHED                           = '----'
 DOTTED                           = '····'
 
-SMART_GROUP                      = 'Smart Money Concepts'
-INTERNAL_GROUP                   = 'Real Time Internal Structure'
-SWING_GROUP                      = 'Real Time Swing Structure'
-BLOCKS_GROUP                     = 'Order Blocks'
-EQUAL_GROUP                      = 'EQH/EQL'
-GAPS_GROUP                       = 'Fair Value Gaps'
-LEVELS_GROUP                     = 'Previous Highs & Lows MTF'
-ZONES_GROUP                      = 'Premium & Discount Zones'
-HTF_GROUP                        = 'HTF Fair Value Gaps'   // HTF FVG
-HTFOB_GROUP                      = 'HTF Order Blocks'      // HTF OB
+SMART_GROUP                      = 'SMC | Smart Money Concepts'
+INTERNAL_GROUP                   = 'SMC | Real Time Internal Structure'
+SWING_GROUP                      = 'SMC | Real Time Swing Structure'
+BLOCKS_GROUP                     = 'SMC | Order Blocks'
+EQUAL_GROUP                      = 'SMC | EQH/EQL'
+GAPS_GROUP                       = 'SMC | Fair Value Gaps'
+LEVELS_GROUP                     = 'SMC | Previous Highs & Lows MTF'
+ZONES_GROUP                      = 'SMC | Premium & Discount Zones'
+HTF_GROUP                        = 'SMC | HTF Fair Value Gaps'   // HTF FVG
+HTFOB_GROUP                      = 'SMC | HTF Order Blocks'      // HTF OB
 
 modeTooltip                      = 'Allows to display historical Structure or only the recent ones'
 styleTooltip                     = 'Indicator color theme'
@@ -89,7 +90,9 @@ htfObExtendTooltip                = 'Extend unmitigated HTF order blocks to the 
 htfObMaxTooltip                   = 'Maximum number of HTF order blocks kept per higher timeframe'
 htfObTextSizeTooltip              = 'Text size of the HTF OB labels (tiny, small or normal)'
 htfObImpulseTooltip               = 'Minimum body size of the breakout candle, as a multiple of the HTF ATR(14). A bullish HTF OB is the last bearish candle before a bullish candle that closes above its high (bearish is the mirror). Set to 0 to disable the filter'
-levelsTooltip                     = 'Plots the high and low of the previous completed Day / Week / Month as horizontal lines (PDH/PDL, PWH/PWL, PMH/PML)'
+dailyLevelsTooltip                = 'Plots the high and low of the previous completed Day as horizontal lines (PDH/PDL)'
+weeklyLevelsTooltip               = 'Plots the high and low of the previous completed Week as horizontal lines (PWH/PWL)'
+monthlyLevelsTooltip              = 'Plots the high and low of the previous completed Month as horizontal lines (PMH/PML)'
 historyBufferTooltip              = 'Caps how many bars of raw OHLC/time history are kept in memory for order block detection and MTF level lookups. Lower values use less memory and run faster; raise it only if you use Weekly/Monthly levels on a low timeframe chart and notice levels not drawing, or order blocks that take a very long time to break not forming correctly.'
 bbTagTooltip                      = 'Show a Bull BB / Bear BB label for each displayed breaker block. The text color follows the breaker zone color, and the label sits at the current candle, in the middle of the zone'
 bbTagSizeTooltip                  = 'Text size of the Bull BB / Bear BB labels (tiny, small or normal)'
@@ -202,13 +205,13 @@ htfObTextSizeInput               = input.string( TINY,       'HTF OB Label Size'
 htfObMaxInput                    = input.int(    5,          'Max HTF OBs per timeframe', group = HTFOB_GROUP,   minval = 1, maxval = 100, tooltip = htfObMaxTooltip, display = display.none)
 htfObImpulseInput                = input.float(  1.0,        'HTF OB Impulse (x ATR)',   group = HTFOB_GROUP,    minval = 0, step = 0.1, tooltip = htfObImpulseTooltip, display = display.none)
 
-showDailyLevelsInput             = input(        false,      'Previous Day',    group = LEVELS_GROUP,   inline = 'daily',tooltip = levelsTooltip, display = display.none)
+showDailyLevelsInput             = input(        false,      'Previous Day',    group = LEVELS_GROUP,   inline = 'daily',  tooltip = dailyLevelsTooltip, display = display.none)
 dailyLevelsStyleInput            = input.string( SOLID,      '',         group = LEVELS_GROUP,   inline = 'daily',   options = [SOLID,DASHED,DOTTED], display = display.none)
 dailyLevelsColorInput            = input(        BLUE,       '',         group = LEVELS_GROUP,   inline = 'daily', display = display.none)
-showWeeklyLevelsInput            = input(        false,      'Previous Week',   group = LEVELS_GROUP,   inline = 'weekly', display = display.none)
+showWeeklyLevelsInput            = input(        false,      'Previous Week',   group = LEVELS_GROUP,   inline = 'weekly', tooltip = weeklyLevelsTooltip, display = display.none)
 weeklyLevelsStyleInput           = input.string( SOLID,      '',         group = LEVELS_GROUP,   inline = 'weekly',  options = [SOLID,DASHED,DOTTED], display = display.none)
 weeklyLevelsColorInput           = input(        BLUE,       '',         group = LEVELS_GROUP,   inline = 'weekly', display = display.none)
-showMonthlyLevelsInput           = input(        false,      'Previous Month',   group = LEVELS_GROUP,   inline = 'monthly', display = display.none)
+showMonthlyLevelsInput           = input(        false,      'Previous Month',   group = LEVELS_GROUP,   inline = 'monthly', tooltip = monthlyLevelsTooltip, display = display.none)
 monthlyLevelsStyleInput          = input.string( SOLID,      '',         group = LEVELS_GROUP,   inline = 'monthly', options = [SOLID,DASHED,DOTTED], display = display.none)
 monthlyLevelsColorInput          = input(        BLUE,       '',         group = LEVELS_GROUP,   inline = 'monthly', display = display.none)
 
@@ -223,7 +226,7 @@ showZoneLabelsInput              = input.bool(   true,       'Show Zone Labels',
 zoneLabelSizeInput               = input.string( SMALL,      'Zone Label Size',          group = ZONES_GROUP,    tooltip = zoneLabelSizeTooltip, options = [TINY,SMALL,NORMAL], display = display.none)
 
 // Breaker Blocks inputs ------------------------------------------------------------------------------------------------
-BB_GROUP                         = 'Breaker Blocks'
+BB_GROUP                         = 'SMC | Breaker Blocks'
 bbShowInput                      = input.bool(   true,  'Show Breaker Blocks',           group = BB_GROUP, display = display.none)
 bbLengthSourceInput              = input.string( 'Custom', 'Swing Length Source',        group = BB_GROUP, options = ['Custom', 'Swing Structure', 'Internal Structure'], tooltip = 'Choose which lookback the Breaker Blocks use.\n\nCustom uses the Swing Lookback (Custom) value.\n\nSwing Structure uses the Swing Structure Length value below.\n\nInternal Structure uses the Internal Structure Length value below.\n\nAll three values are entered manually here and are independent of the Real Time Swing / Internal Structure settings.', display = display.none)
 bbLengthInput                    = input.int(    10,    'Swing Lookback (Custom)',       group = BB_GROUP, minval = 3, display = display.none)
@@ -1242,7 +1245,7 @@ if bbBullishObs.size() > 0
             else if i < bbShowBullInput and bbTop.y < element.top and bbTop.y > element.btm
                 bbBullConf := 1
 
-if bbBullConf > bbBullConf[1]
+if bbBullConf > bbBullConf[1] and bbShowInput
     currentAlerts.bullishBreakerBlock := true
     if bbShowLabelsInput
         label.new(bbTop.x, bbTop.y, '▼', color = color(na), textcolor = bbBearCssInput.bbNoTransp(), style = label.style_label_down, size = size.tiny)
@@ -1276,7 +1279,7 @@ if bbBearishObs.size() > 0
             else if i < bbShowBearInput and bbBtm.y > element.btm and bbBtm.y < element.top
                 bbBearConf := 1
 
-if bbBearConf > bbBearConf[1]
+if bbBearConf > bbBearConf[1] and bbShowInput
     currentAlerts.bearishBreakerBlock := true
     if bbShowLabelsInput
         label.new(bbBtm.x, bbBtm.y, '▲', color = color(na), textcolor = bbBullCssInput.bbNoTransp(), style = label.style_label_up, size = size.tiny)
