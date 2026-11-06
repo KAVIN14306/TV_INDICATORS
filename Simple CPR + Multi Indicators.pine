@@ -2,18 +2,20 @@
 // © Kavin_Palanisamy
 
 //@version=6
-indicator('Simple CPR + Multi Indicators', shorttitle = 'CPR + Multi', overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator('Simple CPR + Multi Indicators', shorttitle = 'CPR + Multi', overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
 
 TRADITIONAL = 'Traditional'
 FIBONACCI = 'Fibonacci'
 CLASSIC = 'Classic'
 CAMARILLA = 'Camarilla'
 
+var SR_COLOR = #FB8C00
+
 // Input fields
 kind = input.string(title = 'Type', defval = TRADITIONAL, options = [TRADITIONAL, FIBONACCI, CLASSIC, CAMARILLA])
 
 // ——— CPR Indicator - Pivot Mode (Auto/Manual) ———
-pivot_mode = input.string('Auto', 'CPR Indicator by KGS - Select Pivot Mode', options = ['Auto', 'Manual'])
+pivot_mode = input.string('Auto', 'CPR Indicator - Select Pivot Mode', options = ['Auto', 'Manual'])
 
 manual_daily = input.bool(false, 'Show Daily CPR (Manual)')
 manual_weekly = input.bool(false, 'Show Weekly CPR (Manual)')
@@ -21,79 +23,66 @@ manual_monthly = input.bool(false, 'Show Monthly CPR (Manual)')
 manual_next_day = input.bool(false, 'Show Next Day CPR (Manual)')
 manual_next_week = input.bool(false, 'Show Next Week CPR (Manual)')
 manual_next_month = input.bool(false, 'Show Next Month CPR (Manual)')
+manual_pdhl_d = input.bool(false, 'Show PDH / PDL (Manual)', tooltip = 'Manual mode only. Draws the previous Day High / Low on its own, even if the Daily CPR is not shown. Uses the Session High Low styling, Number of CPR Back and Historical SR settings.')
+manual_pdhl_w = input.bool(false, 'Show PWH / PWL (Manual)', tooltip = 'Manual mode only. Draws the previous Week High / Low on its own, even if the Weekly CPR is not shown.')
+manual_pdhl_m = input.bool(false, 'Show PMH / PML (Manual)', tooltip = 'Manual mode only. Draws the previous Month High / Low on its own, even if the Monthly CPR is not shown.')
+manual_primary = input.string('First Selected', 'Table / Alert Period (Manual mode)', options = ['First Selected', 'Daily', 'Weekly', 'Monthly'], tooltip = 'In Manual mode this decides which period drives the table (CPR Width, ATR Phase, Read) and the level alerts. First Selected = the first ticked of Daily, Weekly, Monthly.')
 
-look_back = input.int(title = 'Number of CPR Back', defval = 3, minval = 1, maxval = 5000)
+look_back = input.int(title = 'Number of CPR Back', defval = 3, minval = 1, maxval = 10)
 position_labels = input.string('Right', 'Labels Position', options = ['Left', 'Right'])
 line_width = input.int(title = 'Line Width', defval = 3, minval = 1, maxval = 100)
 hist_sr_show = input.bool(false, 'Show Historical SR Pivots')
-
-is_daily_based = input.bool(
-     title = 'Use Daily-based Values',
-     defval = true,
-     tooltip = 'When this option is unchecked, CPR will use intraday data while calculating on intraday charts. If Extended Hours are displayed on the chart, they will be taken into account during the CPR level calculation. If intraday OHLC values are different from daily-based values (normal for stocks), the CPR levels will also differ.')
-
-// Variables
-var arr_time = array.new_int()
-var p = array.new_float()
-var tp = array.new_float()
-var bp = array.new_float()
-
-var SR_COLOR = #FB8C00
-var DEV_SR_COLOR = #E2BEE7
-
-var pdh_arr = array.new_float()
-var pdl_arr = array.new_float()
 
 // ——— CPR Customisation ———
 cpr_show = input.bool(true, '', inline = 'CPR', group = 'CPR Customisation')
 cpr_color = input.color(color.blue, 'Show CPR', inline = 'CPR', group = 'CPR Customisation')
 cpr_show_lines = input.bool(true, 'Show CPR Lines', group = 'CPR Customisation')
 cpr_show_fill = input.bool(false, 'Show CPR Fill', group = 'CPR Customisation')
-cpr_show_prices = input.bool(false, 'Show CPR Price', group = 'CPR Customisation')
-cpr_show_labels = input.bool(false, 'Show CPR Label', group = 'CPR Customisation')
+cpr_show_prices = input.bool(true, 'Show CPR Price', group = 'CPR Customisation')
+cpr_show_labels = input.bool(true, 'Show CPR Label', group = 'CPR Customisation')
+cpr_label_size = input.string('small', 'CPR Label / Price Text Size', options = ['tiny', 'small', 'normal', 'large', 'huge'], group = 'CPR Customisation')
 cpr_line_style = input.string('Dotted', 'CPR Line Style', options = ['Solid', 'Dashed', 'Dotted'], group = 'CPR Customisation')
+
+// ——— Camarilla R3/S3 alongside CPR ———
+show_cam_r3s3 = input.string(
+     'No',
+     'Show Camarilla Pivot R3/S3 Levels',
+     options = ['Yes', 'No'],
+     group = 'CPR Customisation',
+     tooltip = 'Yes = draws Camarilla R3 and S3 alongside the CPR on every period shown (Daily / Weekly / Monthly / Next Day / Next Week / Next Month). R3 and S3 each have their own color. Works independently of the selected pivot Type.')
+cam_r3_color = input.color(color.orange, 'Camarilla R3 Color', group = 'CPR Customisation')
+cam_s3_color = input.color(color.orange, 'Camarilla S3 Color', group = 'CPR Customisation')
+cam_show_labels = input.bool(true, 'Show Camarilla Label', group = 'CPR Customisation')
+cam_show_prices = input.bool(true, 'Show Camarilla Price', group = 'CPR Customisation')
+cam_label_size = input.string('small', 'Camarilla Label / Price Text Size', options = ['tiny', 'small', 'normal', 'large', 'huge'], group = 'CPR Customisation')
 
 // ——— Pivot Customisation ———
 sr_show = input.bool(true, 'Show SR Levels', inline = 'Show SR Pivots', group = 'Pivot Customisation')
 sr_show_labels = input.bool(true, 'Show SR Label', group = 'Pivot Customisation')
 sr_show_prices = input.bool(true, 'Show SR Price', group = 'Pivot Customisation')
+sr_label_size = input.string('small', 'SR Label / Price Text Size', options = ['tiny', 'small', 'normal', 'large', 'huge'], group = 'Pivot Customisation')
 sr_line_style = input.string('Solid', 'SR Line Style', options = ['Solid', 'Dashed', 'Dotted'], group = 'Pivot Customisation')
 
 // ——— Pivots ———
-var r1 = array.new_float()
-var s1 = array.new_float()
-
 s1_show = input.bool(true, '', inline = 'S1/R1', group = 'Pivot Display')
 s1_color = input.color(SR_COLOR, 'S1', inline = 'S1/R1', group = 'Pivot Display')
 r1_show = input.bool(true, '', inline = 'S1/R1', group = 'Pivot Display')
 r1_color = input.color(SR_COLOR, 'R1', inline = 'S1/R1', group = 'Pivot Display')
-
-var r2 = array.new_float()
-var s2 = array.new_float()
 
 s2_show = input.bool(false, '', inline = 'S2/R2', group = 'Pivot Display')
 s2_color = input.color(SR_COLOR, 'S2', inline = 'S2/R2', group = 'Pivot Display')
 r2_show = input.bool(false, '', inline = 'S2/R2', group = 'Pivot Display')
 r2_color = input.color(SR_COLOR, 'R2', inline = 'S2/R2', group = 'Pivot Display')
 
-var r3 = array.new_float()
-var s3 = array.new_float()
-
 s3_show = input.bool(false, '', inline = 'S3/R3', group = 'Pivot Display')
 s3_color = input.color(SR_COLOR, 'S3', inline = 'S3/R3', group = 'Pivot Display')
 r3_show = input.bool(false, '', inline = 'S3/R3', group = 'Pivot Display')
 r3_color = input.color(SR_COLOR, 'R3', inline = 'S3/R3', group = 'Pivot Display')
 
-var r4 = array.new_float()
-var s4 = array.new_float()
-
 s4_show = input.bool(false, '', inline = 'S4/R4', group = 'Pivot Display')
 s4_color = input.color(SR_COLOR, 'S4', inline = 'S4/R4', group = 'Pivot Display')
 r4_show = input.bool(false, '', inline = 'S4/R4', group = 'Pivot Display')
 r4_color = input.color(SR_COLOR, 'R4', inline = 'S4/R4', group = 'Pivot Display')
-
-var r5 = array.new_float()
-var s5 = array.new_float()
 
 s5_show = input.bool(false, '', inline = 'S5/R5', group = 'Pivot Display')
 s5_color = input.color(SR_COLOR, 'S5', inline = 'S5/R5', group = 'Pivot Display')
@@ -106,340 +95,251 @@ fill_cpr_r1_col = input.color(color.new(color.orange, 75), 'CPR–R1 Fill Color'
 fill_cpr_s1 = input.bool(false, 'Fill CPR → S1', group = 'Pivot Customisation')
 fill_cpr_s1_col = input.color(color.new(color.orange, 75), 'CPR–S1 Fill Color', group = 'Pivot Customisation')
 
-check_holidays = input.bool(true, 'Check NSE/BSE holidays', group = 'Developing CPR levels', tooltip = 'Enable this when the Dev CPR lines are not visible(i.e. there is a trading holiday in upcoming session).')
+// ——— Activated Alerts (inputs) — placed above Session High Low ———
+var string ALERT_EVERYTIME = 'All'
+var string ALERT_ONCE_PER_BAR = 'Once Per Bar'
+var string ALERT_ONCE_PER_BAR_CLOSE = 'Once Per Bar Close'
 
-// --- Session Display Toggles ---
-show_day = input.bool(false, title = 'Show Previous High/Low', group = 'Session High Low')
-session_hl_line_style = input.string('Solid', title = 'Line Style', options = ['Solid', 'Dotted', 'Dashed'], group = 'Session High Low')
-session_high_color = input.color(defval = color.aqua, title = 'High Line Color', group = 'Session High Low')
-session_low_color = input.color(defval = color.aqua, title = 'Low Line Color', group = 'Session High Low')
+alert_p = input.bool(false, 'P', inline = 'P', group = 'Activated Alerts')
+alert_s1 = input.bool(false, 'S1', inline = 'S1/R1', group = 'Activated Alerts')
+alert_r1 = input.bool(false, 'R1', inline = 'S1/R1', group = 'Activated Alerts')
+alert_s2 = input.bool(false, 'S2', inline = 'S2/R2', group = 'Activated Alerts')
+alert_r2 = input.bool(false, 'R2', inline = 'S2/R2', group = 'Activated Alerts')
+alert_s3 = input.bool(false, 'S3', inline = 'S3/R3', group = 'Activated Alerts')
+alert_r3 = input.bool(false, 'R3', inline = 'S3/R3', group = 'Activated Alerts')
+alert_s4 = input.bool(false, 'S4', inline = 'S4/R4', group = 'Activated Alerts')
+alert_r4 = input.bool(false, 'R4', inline = 'S4/R4', group = 'Activated Alerts')
+alert_s5 = input.bool(false, 'S5', inline = 'S5/R5', group = 'Activated Alerts')
+alert_r5 = input.bool(false, 'R5', inline = 'S5/R5', group = 'Activated Alerts')
 
-// --- PDH/PDL label/price toggles ---
+alert_input = input.string(
+     title = 'Alert Frequency',
+     defval = ALERT_ONCE_PER_BAR,
+     options = [ALERT_EVERYTIME, ALERT_ONCE_PER_BAR, ALERT_ONCE_PER_BAR_CLOSE],
+     group = 'Activated Alerts',
+     tooltip = 'After you change alert options here you must add a new alert in TradingView and select this indicator under Condition. R levels alert on an upward cross, S levels on a downward cross, P on both.')
+
+// ——— Session High Low (Previous High / Low of each CPR period) ———
+show_day = input.bool(false, 'Show Previous High/Low', group = 'Session High Low', tooltip = 'Draws the previous period High (PDH / PWH / PMH) and Low (PDL / PWL / PML) alongside the CPR / pivots on every period shown (Daily / Weekly / Monthly / Next Day / Next Week / Next Month). Follows the same period selection, Number of CPR Back and Historical SR settings as the CPR and pivots.')
+session_hl_line_style = input.string('Solid', 'Line Style', options = ['Solid', 'Dotted', 'Dashed'], group = 'Session High Low')
+session_high_color = input.color(color.aqua, 'High Line Color', group = 'Session High Low')
+session_low_color = input.color(color.aqua, 'Low Line Color', group = 'Session High Low')
 pd_show_labels = input.bool(true, 'Show PH/PL Labels', group = 'Session High Low')
 pd_show_prices = input.bool(true, 'Show PH/PL Prices', group = 'Session High Low')
+pd_label_size = input.string('small', 'PH/PL Label / Price Text Size', options = ['tiny', 'small', 'normal', 'large', 'huge'], group = 'Session High Low')
 
+// ——— Virgin CPR ———
+virgin_show = input.bool(true, 'Show Virgin CPR zone (extends one period)', group = 'Virgin CPR', tooltip = 'A CPR is "virgin" when price never traded inside it during its own period. The untouched CPR zone is then extended through the next period.')
+virgin_hide_touched = input.bool(false, 'Hide Virgin CPR once touched (after that period ends)', group = 'Virgin CPR', tooltip = 'When ON: the current period\'s virgin zone stays visible all day even if price touches it. Once that day (week / month) is over, an earlier virgin zone that price touched while it was extended is hidden. Zones price never touched stay visible. Earlier zones only appear when "Show Historical SR Pivots" is ON.')
+virgin_text = input.string('Virgin CPR', 'Zone text', group = 'Virgin CPR')
+virgin_size = input.string('small', 'Zone text size', options = ['tiny', 'small', 'normal', 'large', 'huge'], group = 'Virgin CPR')
+virgin_color = input.color(color.blue, 'Zone color', group = 'Virgin CPR')
 
-// ——— Series state ———
-pivotX_open = float(na)
-pivotX_open := nz(pivotX_open[1], open)
+// ——— ATR Phase ———
+atr_len = input.int(14, 'ATR length', minval = 1, group = 'ATR Phase')
+atr_avg_type = input.string('Simple (SMA)', 'ATR averaging', options = ['Simple (SMA)', 'Wilder (RMA)'], group = 'ATR Phase', tooltip = "Simple = plain 14-day average of daily ranges (matches the pre-market report). Wilder = TradingView's standard ATR smoothing.")
+atr_incl_prev = input.bool(true, 'Include yesterday in the 14-day average', group = 'ATR Phase')
+atr_contr = input.float(0.7, 'Contraction below x', minval = 0.0, step = 0.05, inline = 'atrth', group = 'ATR Phase')
+atr_expan = input.float(1.3, 'Expansion above x', minval = 0.0, step = 0.05, inline = 'atrth', group = 'ATR Phase', tooltip = "Ratio = previous period's True Range ÷ ATR of the periods before it. Calculated on the CPR's own timeframe (daily for daily CPR, weekly for weekly CPR...) from completed periods only, so it never repaints.")
 
-pivotX_high = float(na)
-pivotX_high := nz(pivotX_high[1], high)
+// ——— CPR Width thresholds (% of pivot) ———
+string t_GRP_WIDTH = 'CPR Width (% of Pivot)'
 
-pivotX_low = float(na)
-pivotX_low := nz(pivotX_low[1], low)
+t_dw_us = input.float(0.05, 'Daily Super Narrow ≤ %', minval = 0, step = 0.005, inline = 'dw1', group = t_GRP_WIDTH)
+t_dw_nr = input.float(0.1, 'Narrow ≤ %', minval = 0, step = 0.005, inline = 'dw1', group = t_GRP_WIDTH)
+t_dw_md = input.float(0.2, 'Medium ≤ %', minval = 0, step = 0.005, inline = 'dw2', group = t_GRP_WIDTH, tooltip = 'Anything wider than the Medium limit is labelled Wide.')
 
-pivotX_prev_open = float(na)
-pivotX_prev_open := nz(pivotX_prev_open[1])
+t_ww_us = input.float(0.125, 'Weekly Super Narrow ≤ %', minval = 0, step = 0.005, inline = 'ww1', group = t_GRP_WIDTH)
+t_ww_nr = input.float(0.25, 'Narrow ≤ %', minval = 0, step = 0.005, inline = 'ww1', group = t_GRP_WIDTH)
+t_ww_md = input.float(0.5, 'Medium ≤ %', minval = 0, step = 0.005, inline = 'ww2', group = t_GRP_WIDTH)
 
-pivotX_prev_high = float(na)
-pivotX_prev_high := nz(pivotX_prev_high[1])
+t_mw_us = input.float(0.25, 'Monthly Super Narrow ≤ %', minval = 0, step = 0.005, inline = 'mw1', group = t_GRP_WIDTH)
+t_mw_nr = input.float(0.5, 'Narrow ≤ %', minval = 0, step = 0.005, inline = 'mw1', group = t_GRP_WIDTH)
+t_mw_md = input.float(1.0, 'Medium ≤ %', minval = 0, step = 0.005, inline = 'mw2', group = t_GRP_WIDTH)
 
-pivotX_prev_low = float(na)
-pivotX_prev_low := nz(pivotX_prev_low[1])
+// ——— CPR Info Label (each line has its own on / off toggle) ———
+info_show_period = input.bool(true, 'Show CPR period line (Daily / Weekly / Monthly CPR)', group = 'CPR Info Label')
+info_show_width = input.bool(true, 'Show CPR width line (e.g. Wide CPR)', group = 'CPR Info Label')
+info_show_atr = input.bool(true, 'Show ATR phase line (e.g. ATR Normal)', group = 'CPR Info Label')
+info_show_type = input.bool(true, 'Show CPR type line (e.g. Ascending CPR)', group = 'CPR Info Label')
+info_color = input.color(color.aqua, 'Info Label Color', group = 'CPR Info Label')
+info_size = input.string('small', 'Info Label Text Size', options = ['tiny', 'small', 'normal', 'large', 'huge'], group = 'CPR Info Label')
+info_offset = input.int(22, 'Info Label Offset (bars from the CPR end)', minval = 0, maxval = 400, group = 'CPR Info Label', tooltip = 'Distance in chart bars between the end of the CPR lines (right side, or start if Labels Position = Left) and the info label. Increase to move the label further away.')
 
-pivotX_prev_close = float(na)
-pivotX_prev_close := nz(pivotX_prev_close[1])
+// ──────────────────────────────────────────────────────────────────────────────
+// Core helpers
+// ──────────────────────────────────────────────────────────────────────────────
 
-// ——— Helper to pick the "primary" resolution used only by the Activated Alerts engine below ———
+t_resDaily = 'D'
+t_resWeekly = 'W'
+t_resMonthly = 'M'
+
+// "Primary" resolution used by the table and the Activated Alerts engine
 get_pivot_resolution() =>
-    resolution = 'D'
+    string res_ = 'D'
 
     if pivot_mode == 'Manual'
-        resolution := manual_daily ? 'D' : manual_weekly ? 'W' : manual_monthly ? 'M' : 'D'
+        if manual_primary == 'Daily'
+            res_ := 'D'
+        else if manual_primary == 'Weekly'
+            res_ := 'W'
+        else if manual_primary == 'Monthly'
+            res_ := 'M'
+        else
+            res_ := manual_daily ? 'D' : manual_weekly ? 'W' : manual_monthly ? 'M' : 'D'
     else
         if timeframe.isintraday
-            resolution := timeframe.multiplier <= 15 ? 'D' : timeframe.multiplier <= 75 ? 'W' : 'M'
+            res_ := timeframe.multiplier <= 15 ? 'D' : timeframe.multiplier <= 75 ? 'W' : 'M'
         else if timeframe.isdaily
-            resolution := 'M'
+            res_ := 'M'
         else if timeframe.isweekly
-            resolution := '6M'
+            res_ := '6M'
         else
-            resolution := '12M'
+            res_ := '12M'
 
-    resolution
+    res_
 
-traditional() =>
-    pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
-
-    _r1 = pivotX_Median * 2 - pivotX_prev_low
-    _s1 = pivotX_Median * 2 - pivotX_prev_high
-    _r2 = pivotX_Median + 1 * (pivotX_prev_high - pivotX_prev_low)
-    _s2 = pivotX_Median - 1 * (pivotX_prev_high - pivotX_prev_low)
-    _r3 = _r1 + pivotX_prev_high - pivotX_prev_low
-    _s3 = _s1 - pivotX_prev_high + pivotX_prev_low
-    _r4 = _r3 + _r2 - _r1
-    _s4 = _s3 + _s2 - _s1
-    _r5 = _r4 + _r3 - _r2
-    _s5 = _s4 + _s3 - _s2
-
-    array.push(r1, _r1)
-    array.push(s1, _s1)
-    array.push(r2, _r2)
-    array.push(s2, _s2)
-    array.push(r3, _r3)
-    array.push(s3, _s3)
-    array.push(r4, _r4)
-    array.push(s4, _s4)
-    array.push(r5, _r5)
-    array.push(s5, _s5)
-
-fibonacci() =>
-    pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
-    pivot_range = pivotX_prev_high - pivotX_prev_low
-
-    array.push(r1, pivotX_Median + 0.382 * pivot_range)
-    array.push(s1, pivotX_Median - 0.382 * pivot_range)
-    array.push(r2, pivotX_Median + 0.618 * pivot_range)
-    array.push(s2, pivotX_Median - 0.618 * pivot_range)
-    array.push(r3, pivotX_Median + 1 * pivot_range)
-    array.push(s3, pivotX_Median - 1 * pivot_range)
-
-classic() =>
-    pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
-    pivot_range = pivotX_prev_high - pivotX_prev_low
-
-    array.push(r1, pivotX_Median * 2 - pivotX_prev_low)
-    array.push(s1, pivotX_Median * 2 - pivotX_prev_high)
-    array.push(r2, pivotX_Median + 1 * pivot_range)
-    array.push(s2, pivotX_Median - 1 * pivot_range)
-    array.push(r3, pivotX_Median + 2 * pivot_range)
-    array.push(s3, pivotX_Median - 2 * pivot_range)
-    array.push(r4, pivotX_Median + 3 * pivot_range)
-    array.push(s4, pivotX_Median - 3 * pivot_range)
-
-camarilla() =>
-    pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
-    pivot_range = pivotX_prev_high - pivotX_prev_low
-
-    array.push(r1, pivotX_prev_close + pivot_range * 1.1 / 12.0)
-    array.push(s1, pivotX_prev_close - pivot_range * 1.1 / 12.0)
-    array.push(r2, pivotX_prev_close + pivot_range * 1.1 / 6.0)
-    array.push(s2, pivotX_prev_close - pivot_range * 1.1 / 6.0)
-    array.push(r3, pivotX_prev_close + pivot_range * 1.1 / 4.0)
-    array.push(s3, pivotX_prev_close - pivot_range * 1.1 / 4.0)
-    array.push(r4, pivotX_prev_close + pivot_range * 1.1 / 2.0)
-    array.push(s4, pivotX_prev_close - pivot_range * 1.1 / 2.0)
-
-    r5_val = pivotX_prev_high / pivotX_prev_low * pivotX_prev_close
-    array.push(r5, r5_val)
-    array.push(s5, 2 * pivotX_prev_close - r5_val)
-
-// ——— Get resolution and prev-period H/L for the alerts-driving calc engine ———
 resolution = get_pivot_resolution()
 
-pdHighSer = request.security(syminfo.tickerid, resolution, high[1], lookahead = barmerge.lookahead_on)
-pdLowSer = request.security(syminfo.tickerid, resolution, low[1], lookahead = barmerge.lookahead_on)
+// CPR bounds from a period's H / L / C  →  [BC, TC, Pivot]
+t_getBounds(h, l, c) =>
+    t_pivot = (h + l + c) / 3.0
+    t_bc = (h + l) / 2.0
+    t_tc = 2.0 * t_pivot - t_bc
+    [t_bc, t_tc, t_pivot]
 
-calc_pivot() =>
-    pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
-    pivotX_Bottom = (pivotX_prev_high + pivotX_prev_low) / 2
-    pivotX_Top = pivotX_Median * 2 - pivotX_Bottom
+// Kind-aware support / resistance levels (Traditional / Fibonacci / Classic / Camarilla)
+calc_rs_levels(piv, h, l, c) =>
+    rng = h - l
 
-    if pivotX_Bottom > pivotX_Top
-        temp = pivotX_Bottom
-        pivotX_Bottom := pivotX_Top
-        pivotX_Top := temp
-
-    array.push(p, pivotX_Median)
-    array.push(tp, pivotX_Top)
-    array.push(bp, pivotX_Bottom)
-    array.push(pdh_arr, pdHighSer)
-    array.push(pdl_arr, pdLowSer)
+    float _r1 = na
+    float _s1 = na
+    float _r2 = na
+    float _s2 = na
+    float _r3 = na
+    float _s3 = na
+    float _r4 = na
+    float _s4 = na
+    float _r5 = na
+    float _s5 = na
 
     if kind == TRADITIONAL
-        traditional()
+        _r1 := piv * 2 - l
+        _s1 := piv * 2 - h
+        _r2 := piv + rng
+        _s2 := piv - rng
+        _r3 := _r1 + rng
+        _s3 := _s1 - rng
+        _r4 := _r3 + _r2 - _r1
+        _s4 := _s3 + _s2 - _s1
+        _r5 := _r4 + _r3 - _r2
+        _s5 := _s4 + _s3 - _s2
+
     else if kind == FIBONACCI
-        fibonacci()
+        _r1 := piv + 0.382 * rng
+        _s1 := piv - 0.382 * rng
+        _r2 := piv + 0.618 * rng
+        _s2 := piv - 0.618 * rng
+        _r3 := piv + 1 * rng
+        _s3 := piv - 1 * rng
+
     else if kind == CLASSIC
-        classic()
+        _r1 := piv * 2 - l
+        _s1 := piv * 2 - h
+        _r2 := piv + 1 * rng
+        _s2 := piv - 1 * rng
+        _r3 := piv + 2 * rng
+        _s3 := piv - 2 * rng
+        _r4 := piv + 3 * rng
+        _s4 := piv - 3 * rng
+
     else if kind == CAMARILLA
-        camarilla()
+        _r1 := c + rng * 1.1 / 12.0
+        _s1 := c - rng * 1.1 / 12.0
+        _r2 := c + rng * 1.1 / 6.0
+        _s2 := c - rng * 1.1 / 6.0
+        _r3 := c + rng * 1.1 / 4.0
+        _s3 := c - rng * 1.1 / 4.0
+        _r4 := c + rng * 1.1 / 2.0
+        _s4 := c - rng * 1.1 / 2.0
+        _r5 := h / l * c
+        _s5 := 2 * c - _r5
 
-calc_high(prev, curr) =>
-    if na(prev) or na(curr)
-        nz(prev, nz(curr, na))
-    else
-        math.max(prev, curr)
+    [_r1, _s1, _r2, _s2, _r3, _s3, _r4, _s4, _r5, _s5]
 
-calc_low(prev, curr) =>
-    if not na(prev) and not na(curr)
-        math.min(prev, curr)
-    else
-        nz(prev, nz(curr, na))
+// ──────────────────────────────────────────────────────────────────────────────
+// Data requests (each period is requested ONCE and reused everywhere)
+// ──────────────────────────────────────────────────────────────────────────────
 
-[sec_open, sec_high, sec_low, prev_sec_open, prev_sec_high, prev_sec_low, prev_sec_close, prev_sec_time] =
+// Period start times (current + 10 back)
+[d_t0, d_t1, d_t2, d_t3, d_t4, d_t5, d_t6, d_t7, d_t8, d_t9, d_t10] =
      request.security(
          syminfo.tickerid,
-         resolution,
-         [open, high, low, open[1], high[1], low[1], close[1], time[1]],
+         t_resDaily,
+         [time, time[1], time[2], time[3], time[4], time[5], time[6], time[7], time[8], time[9], time[10]],
          lookahead = barmerge.lookahead_on)
 
-sec_open_gaps_on =
+[w_t0, w_t1, w_t2, w_t3, w_t4, w_t5, w_t6, w_t7, w_t8, w_t9, w_t10] =
      request.security(
          syminfo.tickerid,
-         resolution,
-         open,
-         gaps = barmerge.gaps_on,
+         t_resWeekly,
+         [time, time[1], time[2], time[3], time[4], time[5], time[6], time[7], time[8], time[9], time[10]],
          lookahead = barmerge.lookahead_on)
 
-var is_change = false
-var uses_current_bar = false
-var change_time = int(na)
+[m_t0, m_t1, m_t2, m_t3, m_t4, m_t5, m_t6, m_t7, m_t8, m_t9, m_t10] =
+     request.security(
+         syminfo.tickerid,
+         t_resMonthly,
+         [time, time[1], time[2], time[3], time[4], time[5], time[6], time[7], time[8], time[9], time[10]],
+         lookahead = barmerge.lookahead_on)
 
-is_time_change = ta.change(time(resolution)) != 0
+// Daily previous-period H / L / C (1 to 10 periods back)
+[d_h1, d_l1, d_c1, d_h2, d_l2, d_c2, d_h3, d_l3, d_c3, d_h4, d_l4, d_c4, d_h5, d_l5, d_c5, d_h6, d_l6, d_c6, d_h7, d_l7, d_c7, d_h8, d_l8, d_c8, d_h9, d_l9, d_c9, d_h10, d_l10, d_c10] =
+     request.security(
+         syminfo.tickerid,
+         t_resDaily,
+         [high[1], low[1], close[1], high[2], low[2], close[2], high[3], low[3], close[3], high[4], low[4], close[4], high[5], low[5], close[5], high[6], low[6], close[6], high[7], low[7], close[7], high[8], low[8], close[8], high[9], low[9], close[9], high[10], low[10], close[10]],
+         lookahead = barmerge.lookahead_on)
 
-if is_time_change
-    change_time := time
+// Weekly previous-period H / L / C
+[w_h1, w_l1, w_c1, w_h2, w_l2, w_c2, w_h3, w_l3, w_c3, w_h4, w_l4, w_c4, w_h5, w_l5, w_c5, w_h6, w_l6, w_c6, w_h7, w_l7, w_c7, w_h8, w_l8, w_c8, w_h9, w_l9, w_c9, w_h10, w_l10, w_c10] =
+     request.security(
+         syminfo.tickerid,
+         t_resWeekly,
+         [high[1], low[1], close[1], high[2], low[2], close[2], high[3], low[3], close[3], high[4], low[4], close[4], high[5], low[5], close[5], high[6], low[6], close[6], high[7], low[7], close[7], high[8], low[8], close[8], high[9], low[9], close[9], high[10], low[10], close[10]],
+         lookahead = barmerge.lookahead_on)
 
-var start_time = time
+// Monthly previous-period H / L / C
+[m_h1, m_l1, m_c1, m_h2, m_l2, m_c2, m_h3, m_l3, m_c3, m_h4, m_l4, m_c4, m_h5, m_l5, m_c5, m_h6, m_l6, m_c6, m_h7, m_l7, m_c7, m_h8, m_l8, m_c8, m_h9, m_l9, m_c9, m_h10, m_l10, m_c10] =
+     request.security(
+         syminfo.tickerid,
+         t_resMonthly,
+         [high[1], low[1], close[1], high[2], low[2], close[2], high[3], low[3], close[3], high[4], low[4], close[4], high[5], low[5], close[5], high[6], low[6], close[6], high[7], low[7], close[7], high[8], low[8], close[8], high[9], low[9], close[9], high[10], low[10], close[10]],
+         lookahead = barmerge.lookahead_on)
 
-without_time_change = barstate.islast and array.size(arr_time) == 0
+// Next Day / Week / Month CPR use the CURRENT period H / L / C (drawn on the last bar only)
+[nd_h, nd_l, nd_c] = request.security(syminfo.tickerid, t_resDaily, [high, low, close], lookahead = barmerge.lookahead_on)
+[nd_bc, nd_tc, nd_piv] = t_getBounds(nd_h, nd_l, nd_c)
 
-is_can_calc_pivot =
-     not uses_current_bar and is_time_change or
-     uses_current_bar and not na(sec_open_gaps_on) or
-     without_time_change
+[nw_h, nw_l, nw_c] = request.security(syminfo.tickerid, t_resWeekly, [high, low, close], lookahead = barmerge.lookahead_on)
+[nw_bc, nw_tc, nw_piv] = t_getBounds(nw_h, nw_l, nw_c)
 
-enough_bars_for_calculate = prev_sec_time >= start_time or is_daily_based
+[nm_h, nm_l, nm_c] = request.security(syminfo.tickerid, t_resMonthly, [high, low, close], lookahead = barmerge.lookahead_on)
+[nm_bc, nm_tc, nm_piv] = t_getBounds(nm_h, nm_l, nm_c)
 
-if is_can_calc_pivot and enough_bars_for_calculate
-
-    if array.size(arr_time) == 0 and is_daily_based
-        pivotX_prev_open := prev_sec_open[1]
-        pivotX_prev_high := prev_sec_high[1]
-        pivotX_prev_low := prev_sec_low[1]
-        pivotX_prev_close := prev_sec_close[1]
-
-        pivotX_open := sec_open[1]
-        pivotX_high := sec_high[1]
-        pivotX_low := sec_low[1]
-
-        array.push(arr_time, start_time)
-        calc_pivot()
-
-    if is_daily_based
-        pivotX_prev_open := prev_sec_open
-        pivotX_prev_high := prev_sec_high
-        pivotX_prev_low := prev_sec_low
-        pivotX_prev_close := prev_sec_close
-
-        pivotX_open := sec_open
-        pivotX_high := sec_high
-        pivotX_low := sec_low
-
-    else
-        pivotX_prev_high := pivotX_high
-        pivotX_prev_low := pivotX_low
-        pivotX_prev_open := pivotX_open
-        pivotX_prev_close := close[1]
-
-        pivotX_open := open
-        pivotX_high := high
-        pivotX_low := low
-
-    if barstate.islast and not is_change and array.size(arr_time) > 0 and not without_time_change
-        array.set(arr_time, array.size(arr_time) - 1, change_time)
-    else if without_time_change
-        array.push(arr_time, start_time)
-    else
-        array.push(arr_time, nz(change_time, time))
-
-    calc_pivot()
-
-    if array.size(arr_time) > look_back
-
-        if array.size(arr_time) > 0
-            array.shift(arr_time)
-
-        if array.size(p) > 0 and cpr_show
-            array.shift(p)
-
-        if array.size(tp) > 0 and cpr_show
-            array.shift(tp)
-
-        if array.size(bp) > 0 and cpr_show
-            array.shift(bp)
-
-        if array.size(pdh_arr) > 0
-            array.shift(pdh_arr)
-
-        if array.size(pdl_arr) > 0
-            array.shift(pdl_arr)
-
-        if sr_show or hist_sr_show
-
-            if array.size(r1) > 0 and r1_show
-                array.shift(r1)
-
-            if array.size(s1) > 0 and s1_show
-                array.shift(s1)
-
-            if array.size(r2) > 0 and r2_show
-                array.shift(r2)
-
-            if array.size(s2) > 0 and s2_show
-                array.shift(s2)
-
-            if array.size(r3) > 0 and r3_show
-                array.shift(r3)
-
-            if array.size(s3) > 0 and s3_show
-                array.shift(s3)
-
-            if array.size(r4) > 0 and r4_show
-                array.shift(r4)
-
-            if array.size(s4) > 0 and s4_show
-                array.shift(s4)
-
-            if array.size(r5) > 0 and r5_show
-                array.shift(r5)
-
-            if array.size(s5) > 0 and s5_show
-                array.shift(s5)
-
-    is_change := true
-
-else if not is_daily_based
-    pivotX_high := math.max(pivotX_high, high)
-    pivotX_low := math.min(pivotX_low, low)
-
-if barstate.islast and not is_daily_based and array.size(arr_time) == 0
-    runtime.error('Not enough intraday data to calculate CPR. Lower the CPR Timeframe or turn on the \'Use Daily-based Values\' option in the indicator settings.')
-
-// Functions
-getAllTimeHigh() =>
-    h = 0.0
-    h := bar_index == 0 ? high : high > h[1] ? high : h[1]
-    h
-
-getAllTimeLow() =>
-    l = 0.0
-    l := bar_index == 0 ? low : low < l[1] ? low : l[1]
-    l
-
-get_resolution() =>
-    _resolution = 'M'
-
-    if timeframe.isintraday
-        _resolution := timeframe.multiplier <= 15 ? 'D' : 'W'
-    else if timeframe.isweekly or timeframe.ismonthly
-        _resolution := '12M'
-
-    _resolution
-
+// Previous-period H / L / C of the primary resolution (drives the level alerts)
+[a_h, a_l, a_c] = request.security(syminfo.tickerid, resolution, [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Moving Average
 // ──────────────────────────────────────────────────────────────────────────────
 
-ma(source, length, type) =>
-    type == "SMA" ? ta.sma(source, length) :
-     type == "EMA" ? ta.ema(source, length) :
-     type == "SMMA (RMA)" ? ta.rma(source, length) :
-     type == "WMA" ? ta.wma(source, length) :
-     type == "VWMA" ? ta.vwma(source, length) :
+ma(src_, len_, mtype) =>
+    mtype == "SMA" ? ta.sma(src_, len_) :
+     mtype == "EMA" ? ta.ema(src_, len_) :
+     mtype == "SMMA (RMA)" ? ta.rma(src_, len_) :
+     mtype == "WMA" ? ta.wma(src_, len_) :
+     mtype == "VWMA" ? ta.vwma(src_, len_) :
      na
 
 show_ma1 = input(false, "MA №1", inline = "MA #1", group = 'Moving Averages')
@@ -628,217 +528,197 @@ st2_dnCol = input.color(color.maroon, 'Downtrend Color', group = st_grp2)
 st1_color = st1_dir < 0 ? st1_upCol : st1_dnCol
 st2_color = st2_dir < 0 ? st2_upCol : st2_dnCol
 
-st1_plot = plot(st1_show ? st1_val : na, title = 'SuperTrend #1 (Factor 2)', color = st1_color, linewidth = 2, style = plot.style_line, display = display.all - display.status_line)
-st2_plot = plot(st2_show ? st2_val : na, title = 'SuperTrend #2 (Factor 3)', color = st2_color, linewidth = 2, style = plot.style_line, display = display.all - display.status_line)
+plot(st1_show ? st1_val : na, title = 'SuperTrend #1 (Factor 2)', color = st1_color, linewidth = 2, style = plot.style_line, display = display.all - display.status_line)
+plot(st2_show ? st2_val : na, title = 'SuperTrend #2 (Factor 3)', color = st2_color, linewidth = 2, style = plot.style_line, display = display.all - display.status_line)
 
 // --------------------------------------------------------------------------------
-// Activated Alerts
+// Activated Alerts logic (inputs are declared above, before Session High Low)
+// Levels come straight from the primary-resolution request above
 // --------------------------------------------------------------------------------
-
-var string ALERT_EVERYTIME = 'All'
-var string ALERT_ONCE_PER_BAR = 'Once Per Bar'
-var string ALERT_ONCE_PER_BAR_CLOSE = 'Once Per Bar Close'
-
-alert_p = input.bool(false, 'P', inline = 'P', group = 'Activated Alerts')
-alert_s1 = input.bool(false, 'S1', inline = 'S1/R1', group = 'Activated Alerts')
-alert_r1 = input.bool(false, 'R1', inline = 'S1/R1', group = 'Activated Alerts')
-alert_s2 = input.bool(false, 'S2', inline = 'S2/R2', group = 'Activated Alerts')
-alert_r2 = input.bool(false, 'R2', inline = 'S2/R2', group = 'Activated Alerts')
-alert_s3 = input.bool(false, 'S3', inline = 'S3/R3', group = 'Activated Alerts')
-alert_r3 = input.bool(false, 'R3', inline = 'S3/R3', group = 'Activated Alerts')
-alert_s4 = input.bool(false, 'S4', inline = 'S4/R4', group = 'Activated Alerts')
-alert_r4 = input.bool(false, 'R4', inline = 'S4/R4', group = 'Activated Alerts')
-alert_s5 = input.bool(false, 'S5', inline = 'S5/R5', group = 'Activated Alerts')
-alert_r5 = input.bool(false, 'R5', inline = 'S5/R5', group = 'Activated Alerts')
-
-alert_input = input.string(
-     title = 'Alert Frequency',
-     defval = ALERT_ONCE_PER_BAR,
-     options = [ALERT_EVERYTIME, ALERT_ONCE_PER_BAR, ALERT_ONCE_PER_BAR_CLOSE],
-     group = 'Activated Alerts',
-     tooltip = 'After you change alert options here you must add a new alert in TradingView and select this indicator under Condition.')
 
 alert_frequency =
      alert_input == ALERT_ONCE_PER_BAR ? alert.freq_once_per_bar :
      alert_input == ALERT_ONCE_PER_BAR_CLOSE ? alert.freq_once_per_bar_close :
      alert.freq_all
 
-cur_p = array.size(p) > 0 ? array.get(p, array.size(p) - 1) : na
-cur_s1 = array.size(s1) > 0 ? array.get(s1, array.size(s1) - 1) : na
-cur_r1 = array.size(r1) > 0 ? array.get(r1, array.size(r1) - 1) : na
-cur_s2 = array.size(s2) > 0 ? array.get(s2, array.size(s2) - 1) : na
-cur_r2 = array.size(r2) > 0 ? array.get(r2, array.size(r2) - 1) : na
-cur_s3 = array.size(s3) > 0 ? array.get(s3, array.size(s3) - 1) : na
-cur_r3 = array.size(r3) > 0 ? array.get(r3, array.size(r3) - 1) : na
-cur_s4 = array.size(s4) > 0 ? array.get(s4, array.size(s4) - 1) : na
-cur_r4 = array.size(r4) > 0 ? array.get(r4, array.size(r4) - 1) : na
-cur_s5 = array.size(s5) > 0 ? array.get(s5, array.size(s5) - 1) : na
-cur_r5 = array.size(r5) > 0 ? array.get(r5, array.size(r5) - 1) : na
+cur_p = (a_h + a_l + a_c) / 3.0
 
-if alert_p and not na(cur_p) and ta.crossover(close, cur_p)
+[cur_r1, cur_s1, cur_r2, cur_s2, cur_r3, cur_s3, cur_r4, cur_s4, cur_r5, cur_s5] = calc_rs_levels(cur_p, a_h, a_l, a_c)
+
+// Crossovers are computed on every bar (outside any short-circuiting condition)
+x_p_up = ta.crossover(close, cur_p)
+x_p_dn = ta.crossunder(close, cur_p)
+x_r1_up = ta.crossover(close, cur_r1)
+x_s1_dn = ta.crossunder(close, cur_s1)
+x_r2_up = ta.crossover(close, cur_r2)
+x_s2_dn = ta.crossunder(close, cur_s2)
+x_r3_up = ta.crossover(close, cur_r3)
+x_s3_dn = ta.crossunder(close, cur_s3)
+x_r4_up = ta.crossover(close, cur_r4)
+x_s4_dn = ta.crossunder(close, cur_s4)
+x_r5_up = ta.crossover(close, cur_r5)
+x_s5_dn = ta.crossunder(close, cur_s5)
+
+if alert_p and x_p_up
     alert('Price crossed above CPR Pivot (P)', alert_frequency)
-if alert_p and not na(cur_p) and ta.crossunder(close, cur_p)
+if alert_p and x_p_dn
     alert('Price crossed below CPR Pivot (P)', alert_frequency)
 
-if alert_r1 and not na(cur_r1) and ta.crossover(close, cur_r1)
+if alert_r1 and x_r1_up
     alert('Price crossed above R1', alert_frequency)
-if alert_s1 and not na(cur_s1) and ta.crossunder(close, cur_s1)
+if alert_s1 and x_s1_dn
     alert('Price crossed below S1', alert_frequency)
 
-if alert_r2 and not na(cur_r2) and ta.crossover(close, cur_r2)
+if alert_r2 and x_r2_up
     alert('Price crossed above R2', alert_frequency)
-if alert_s2 and not na(cur_s2) and ta.crossunder(close, cur_s2)
+if alert_s2 and x_s2_dn
     alert('Price crossed below S2', alert_frequency)
 
-if alert_r3 and not na(cur_r3) and ta.crossover(close, cur_r3)
+if alert_r3 and x_r3_up
     alert('Price crossed above R3', alert_frequency)
-if alert_s3 and not na(cur_s3) and ta.crossunder(close, cur_s3)
+if alert_s3 and x_s3_dn
     alert('Price crossed below S3', alert_frequency)
 
-if alert_r4 and not na(cur_r4) and ta.crossover(close, cur_r4)
+if alert_r4 and x_r4_up
     alert('Price crossed above R4', alert_frequency)
-if alert_s4 and not na(cur_s4) and ta.crossunder(close, cur_s4)
+if alert_s4 and x_s4_dn
     alert('Price crossed below S4', alert_frequency)
 
-if alert_r5 and not na(cur_r5) and ta.crossover(close, cur_r5)
+if alert_r5 and x_r5_up
     alert('Price crossed above R5', alert_frequency)
-if alert_s5 and not na(cur_s5) and ta.crossunder(close, cur_s5)
+if alert_s5 and x_s5_dn
     alert('Price crossed below S5', alert_frequency)
 
 //====================================================================
-// CPR Table
+// CPR Table — calculations
+// (the Table Options inputs, bias logic and the table drawing itself
+//  are at the END of the file so Table Options is the last settings section)
 //====================================================================
 
-string t_GRP_TABLE = '════════ Table Options ═════════'
+// CPR bounds: Daily (current, previous, one before), Weekly and Monthly (current, previous, one before)
+[t_bc1, t_tc1, t_pivot1] = t_getBounds(d_h1, d_l1, d_c1)
+[t_bc2, t_tc2, t_pivot2] = t_getBounds(d_h2, d_l2, d_c2)
+[t_bc3, t_tc3, t_pivot3] = t_getBounds(d_h3, d_l3, d_c3)
 
-t_toggleDarkColors = input.bool(false, title = 'Dark Mode', group = t_GRP_TABLE)
-t_biasMode = input.string('Current', 'Bias Mode', group = t_GRP_TABLE, options = ['Current', 'Pairs'])
+[t_bcW, t_tcW, t_pivotW] = t_getBounds(w_h1, w_l1, w_c1)
+[wx_bc2, wx_tc2, wx_pv2] = t_getBounds(w_h2, w_l2, w_c2)
+[wx_bc3, wx_tc3, wx_pv3] = t_getBounds(w_h3, w_l3, w_c3)
 
-t_FrameCol = t_toggleDarkColors ? color.new(#999999, 50) : color.rgb(241, 241, 241)
-t_BorderCol = t_toggleDarkColors ? color.new(#999999, 50) : color.rgb(241, 241, 241)
-t_TextColor = t_toggleDarkColors ? color.new(color.white, 0) : color.new(color.black, 0)
-t_BGColor = t_toggleDarkColors ? color.new(color.black, 100) : color.new(color.white, 100)
+[t_bcM, t_tcM, t_pivotM] = t_getBounds(m_h1, m_l1, m_c1)
+[mx_bc2, mx_tc2, mx_pv2] = t_getBounds(m_h2, m_l2, m_c2)
+[mx_bc3, mx_tc3, mx_pv3] = t_getBounds(m_h3, m_l3, m_c3)
 
-string t_tablesize = input.string('small', 'Size', inline = 't_tblsz', group = t_GRP_TABLE, options = ['tiny', 'small', 'normal', 'large', 'huge', 'auto'])
-string t_tableposY = input.string('middle', '↕', inline = 't_tblsz', group = t_GRP_TABLE, options = ['top', 'middle', 'bottom'])
-string t_tableposX = input.string('right', '↔', inline = 't_tblsz', group = t_GRP_TABLE, options = ['left', 'center', 'right'])
-
-t_resDaily = 'D'
-t_resWeekly = 'W'
-t_resMonthly = 'M'
-
-t_getBounds(res, h, l, c) =>
-    t_pivot = (h + l + c) / 3.0
-    t_bc = (h + l) / 2.0
-    t_tc = 2.0 * t_pivot - t_bc
-    [t_bc, t_tc, t_pivot]
-
-[t_ph1, t_pl1, t_pc1] =
-     request.security(
-         syminfo.tickerid,
-         t_resDaily,
-         [high[1], low[1], close[1]],
-         lookahead = barmerge.lookahead_on)
-
-[t_ph2, t_pl2, t_pc2] =
-     request.security(
-         syminfo.tickerid,
-         t_resDaily,
-         [high[2], low[2], close[2]],
-         lookahead = barmerge.lookahead_on)
-
-[t_ph3, t_pl3, t_pc3] =
-     request.security(
-         syminfo.tickerid,
-         t_resDaily,
-         [high[3], low[3], close[3]],
-         lookahead = barmerge.lookahead_on)
-
-[t_bc1, t_tc1, t_pivot1] = t_getBounds(t_resDaily, t_ph1, t_pl1, t_pc1)
-[t_bc2, t_tc2, t_pivot2] = t_getBounds(t_resDaily, t_ph2, t_pl2, t_pc2)
-[t_bc3, t_tc3, t_pivot3] = t_getBounds(t_resDaily, t_ph3, t_pl3, t_pc3)
-
-[t_phW, t_plW, t_pcW] =
-     request.security(
-         syminfo.tickerid,
-         t_resWeekly,
-         [high[1], low[1], close[1]],
-         lookahead = barmerge.lookahead_on)
-
-[t_bcW, t_tcW, t_pivotW] = t_getBounds(t_resWeekly, t_phW, t_plW, t_pcW)
-
-[t_phM, t_plM, t_pcM] =
-     request.security(
-         syminfo.tickerid,
-         t_resMonthly,
-         [high[1], low[1], close[1]],
-         lookahead = barmerge.lookahead_on)
-
-[t_bcM, t_tcM, t_pivotM] = t_getBounds(t_resMonthly, t_phM, t_plM, t_pcM)
-
-t_calcLoc(res, bc, tc) =>
+// Price location vs CPR — uses the chart's own close (no extra requests, no look-ahead)
+t_calcLoc(bc, tc) =>
     t_lower = math.min(bc, tc)
     t_upper = math.max(bc, tc)
+    close > t_upper ? 'Above' : close < t_lower ? 'Below' : 'Inside'
 
-    t_c = request.security(
-         syminfo.tickerid,
-         res,
-         close,
-         lookahead = barmerge.lookahead_on)
+t_locM = t_calcLoc(t_bcM, t_tcM)
+t_locW = t_calcLoc(t_bcW, t_tcW)
+t_locD = t_calcLoc(t_bc1, t_tc1)
 
-    t_c > t_upper ? 'Above' : t_c < t_lower ? 'Below' : 'Inside'
+// ——— CPR Width (Daily / Weekly / Monthly) ———
+t_widthLbl(w, us, nr, md) =>
+    w <= us ? 'Super Narrow' : w <= nr ? 'Narrow' : w <= md ? 'Medium' : 'Wide'
 
-t_locM = t_calcLoc(t_resMonthly, t_bcM, t_tcM)
-t_locW = t_calcLoc(t_resWeekly, t_bcW, t_tcW)
-t_locD = t_calcLoc(t_resDaily, t_bc1, t_tc1)
+t_widthCol(lbl) =>
+    lbl == 'Super Narrow' ? color.green :
+     lbl == 'Narrow' ? color.rgb(0, 170, 0) :
+     lbl == 'Medium' ? color.orange :
+     color.gray
 
 t_cpr_width = math.abs(t_tc1 - t_bc1) / t_pivot1 * 100
+t_cpr_widthW = math.abs(t_tcW - t_bcW) / t_pivotW * 100
+t_cpr_widthM = math.abs(t_tcM - t_bcM) / t_pivotM * 100
 
-t_widthLabel =
-     t_cpr_width <= 0.05 ? 'Super Narrow' :
-     t_cpr_width > 0.05 and t_cpr_width < 0.13 ? 'Narrow' :
-     t_cpr_width <= 0.3 ? 'Medium' :
-     'Wide'
+t_widthLabel = t_widthLbl(t_cpr_width, t_dw_us, t_dw_nr, t_dw_md)
+t_widthLabelW = t_widthLbl(t_cpr_widthW, t_ww_us, t_ww_nr, t_ww_md)
+t_widthLabelM = t_widthLbl(t_cpr_widthM, t_mw_us, t_mw_nr, t_mw_md)
 
-t_l1 = math.min(t_bc1, t_tc1)
-t_u1 = math.max(t_bc1, t_tc1)
+// Single "CPR Width" shown in the table = width of the CURRENT CPR
+t_widthLabelCur =
+     resolution == 'D' ? t_widthLabel :
+     resolution == 'W' ? t_widthLabelW :
+     t_widthLabelM
 
-t_l2 = math.min(t_bc2, t_tc2)
-t_u2 = math.max(t_bc2, t_tc2)
+// ——— ATR Phase ———
+f_atr_ratio() =>
+    float tr_ = ta.tr(true)
+    float a_sma = ta.sma(tr_, atr_len)
+    float a_rma = ta.rma(tr_, atr_len)
+    float a_sel = atr_avg_type == 'Wilder (RMA)' ? a_rma : a_sma
+    float base_ = atr_incl_prev ? a_sel[1] : a_sel[2]
+    base_ > 0 ? tr_[1] / base_ : float(na)
 
-t_l3 = math.min(t_bc3, t_tc3)
-t_u3 = math.max(t_bc3, t_tc3)
+d_atrRatio = request.security(syminfo.tickerid, t_resDaily, f_atr_ratio(), lookahead = barmerge.lookahead_on)
+w_atrRatio = request.security(syminfo.tickerid, t_resWeekly, f_atr_ratio(), lookahead = barmerge.lookahead_on)
+m_atrRatio = request.security(syminfo.tickerid, t_resMonthly, f_atr_ratio(), lookahead = barmerge.lookahead_on)
 
-t_isAsc = t_l2 < t_l1 and t_u2 < t_u1 and t_l2 < t_u1
-t_isDesc = t_l2 > t_l1 and t_u2 > t_u1 and t_l2 > t_u1
-t_isInside = t_l1 >= t_l2 and t_u1 <= t_u2
-t_isOutside = t_l1 <= t_l2 and t_u1 >= t_u2
+f_atr_phase(r) =>
+    na(r) ? 'N/A' : r < atr_contr ? 'Contraction' : r > atr_expan ? 'Expansion' : 'Normal'
 
-t_isAscRev =
-     t_l3 < t_l2 and
-     t_u3 < t_u2 and
-     t_l2 > t_l1 and
-     t_u2 > t_u1 and
-     t_l2 > t_u2
+// "Read" — simple day-type reading from CPR width + ATR phase
+f_read_text(widthLbl, phase) =>
+    bool narrow = widthLbl == 'Super Narrow' or widthLbl == 'Narrow'
+    phase == 'N/A' ? 'N/A' : narrow ? (phase == 'Contraction' ? 'Breakout day likely' : phase == 'Expansion' ? 'Fast trend day likely' : 'Trend day likely') : widthLbl == 'Medium' ? (phase == 'Expansion' ? 'Volatile day likely' : 'Mixed day likely') : (phase == 'Expansion' ? 'Volatile wide-range day' : 'Range day likely')
 
-t_isDrRev =
-     t_l3 > t_l2 and
-     t_u3 > t_u2 and
-     t_l2 < t_l1 and
-     t_u2 < t_u1 and
-     t_l2 < t_l1
+// Each "Read" text gets its own color
+t_readCol(txt) =>
+    txt == 'Trend day likely' ? color.rgb(0, 200, 83) :
+     txt == 'Fast trend day likely' ? color.rgb(118, 255, 3) :
+     txt == 'Breakout day likely' ? color.rgb(0, 229, 255) :
+     txt == 'Mixed day likely' ? color.rgb(255, 235, 59) :
+     txt == 'Volatile day likely' ? color.rgb(255, 145, 0) :
+     txt == 'Volatile wide-range day' ? color.rgb(255, 82, 82) :
+     txt == 'Range day likely' ? color.rgb(176, 190, 197) :
+     color.gray
 
-t_isOverlap =
-     not (t_isAsc or t_isDesc or t_isInside or t_isOutside or t_isAscRev or t_isDrRev)
+// ATR phase of the CURRENT CPR period (same period as the table's CPR Width)
+t_atrRatioCur =
+     resolution == 'D' ? d_atrRatio :
+     resolution == 'W' ? w_atrRatio :
+     m_atrRatio
 
-t_typeLabel =
-     t_isAscRev ? 'Asc Rev' :
-     t_isDrRev ? 'Desc Rev' :
-     t_isAsc ? 'Ascending' :
-     t_isDesc ? 'Descending' :
-     t_isInside ? 'Inside' :
-     t_isOutside ? 'Outside' :
-     'Overlapping'
+t_atrPhaseCur = f_atr_phase(t_atrRatioCur)
+t_atrTxt = na(t_atrRatioCur) ? 'N/A' : t_atrPhaseCur + ' ' + str.tostring(t_atrRatioCur, '0.00') + 'x'
+t_atrCol = t_atrPhaseCur == 'Contraction' ? color.orange : t_atrPhaseCur == 'Expansion' ? color.red : t_atrPhaseCur == 'Normal' ? color.green : color.gray
+t_readTxt = f_read_text(t_widthLabelCur, t_atrPhaseCur)
+t_readColor = t_readCol(t_readTxt)
+
+// ——— CPR Type (Ascending / Descending / Inside / Outside / Reversals / Overlapping) ———
+// Index 1 = current CPR, 2 = previous CPR, 3 = the one before.
+f_cpr_type(bc1, tc1, bc2, tc2, bc3, tc3) =>
+    float lw1 = math.min(bc1, tc1)
+    float up1 = math.max(bc1, tc1)
+    float lw2 = math.min(bc2, tc2)
+    float up2 = math.max(bc2, tc2)
+    float lw3 = math.min(bc3, tc3)
+    float up3 = math.max(bc3, tc3)
+
+    bool isAsc = lw2 < lw1 and up2 < up1 and lw2 < up1
+    bool isDesc = lw2 > lw1 and up2 > up1 and lw2 > up1
+    bool isInside = lw1 >= lw2 and up1 <= up2
+    bool isOutside = lw1 <= lw2 and up1 >= up2
+    bool isAscRev = lw3 < lw2 and up3 < up2 and lw2 > lw1 and up2 > up1
+    bool isDrRev = lw3 > lw2 and up3 > up2 and lw2 < lw1 and up2 < up1
+
+    isAscRev ? 'Asc Rev' : isDrRev ? 'Desc Rev' : isAsc ? 'Ascending' : isDesc ? 'Descending' : isInside ? 'Inside' : isOutside ? 'Outside' : 'Overlapping'
+
+// Each CPR type gets its own color
+t_typeCol(lbl) =>
+    lbl == 'Ascending' ? color.rgb(0, 200, 83) :
+     lbl == 'Descending' ? color.rgb(255, 82, 82) :
+     lbl == 'Asc Rev' ? color.rgb(0, 229, 255) :
+     lbl == 'Desc Rev' ? color.rgb(255, 145, 0) :
+     lbl == 'Inside' ? color.rgb(255, 235, 59) :
+     lbl == 'Outside' ? color.rgb(224, 64, 251) :
+     color.rgb(176, 190, 197)
+
+t_typeLabel = f_cpr_type(t_bc1, t_tc1, t_bc2, t_tc2, t_bc3, t_tc3)
+t_typeColor = t_typeCol(t_typeLabel)
+w_typeNow = f_cpr_type(t_bcW, t_tcW, wx_bc2, wx_tc2, wx_bc3, wx_tc3)
+m_typeNow = f_cpr_type(t_bcM, t_tcM, mx_bc2, mx_tc2, mx_bc3, mx_tc3)
 
 t_newDay = ta.change(time('D')) != 0
 
@@ -847,14 +727,14 @@ var float t_dayOpenPrice = na
 if t_newDay
     t_dayOpenPrice := open
 
-t_r1 = 2 * t_pivot1 - t_pl1
-t_s1 = 2 * t_pivot1 - t_ph1
-t_r2 = t_pivot1 + (t_ph1 - t_pl1)
-t_s2 = t_pivot1 - (t_ph1 - t_pl1)
-t_r3 = t_pivot1 + 2 * (t_ph1 - t_pl1)
-t_s3 = t_pivot1 - 2 * (t_ph1 - t_pl1)
-t_r4 = t_pivot1 + 3 * (t_ph1 - t_pl1)
-t_s4 = t_pivot1 - 3 * (t_ph1 - t_pl1)
+t_r1 = 2 * t_pivot1 - d_l1
+t_s1 = 2 * t_pivot1 - d_h1
+t_r2 = t_pivot1 + (d_h1 - d_l1)
+t_s2 = t_pivot1 - (d_h1 - d_l1)
+t_r3 = t_pivot1 + 2 * (d_h1 - d_l1)
+t_s3 = t_pivot1 - 2 * (d_h1 - d_l1)
+t_r4 = t_pivot1 + 3 * (d_h1 - d_l1)
+t_s4 = t_pivot1 - 3 * (d_h1 - d_l1)
 
 t_lowerCPR = math.min(t_bc1, t_tc1)
 t_upperCPR = math.max(t_bc1, t_tc1)
@@ -897,147 +777,8 @@ t_locColor12(lbl) =>
 t_openCol = na(t_dayOpenPrice) ? color.gray : t_locColor12(t_openLoc)
 t_currCol = t_locColor12(t_currentLoc)
 
-symbolNifty = "NSE:NIFTY1!"
-symbolBankNifty = "NSE:BANKNIFTY1!"
-
-f_cpr(sym) =>
-    dh = request.security(sym, "D", high[1], lookahead = barmerge.lookahead_off)
-    dl = request.security(sym, "D", low[1], lookahead = barmerge.lookahead_off)
-    dc = request.security(sym, "D", close[1], lookahead = barmerge.lookahead_off)
-
-    pp = (dh + dl + dc) / 3.0
-    bc = (dh + dl) / 2.0
-    tc = 2.0 * pp - bc
-
-    [pp, bc, tc]
-
-f_loc(price, bc, tc) =>
-    upper = math.max(bc, tc)
-    lower = math.min(bc, tc)
-
-    isAbove = price > upper
-    isBelow = price < lower
-
-    isAbove ? 1 : isBelow ? -1 : 0
-
-[ppN, bcN, tcN] = f_cpr(symbolNifty)
-[ppB, bcB, tcB] = f_cpr(symbolBankNifty)
-
-closeN = request.security(symbolNifty, timeframe.period, close, lookahead = barmerge.lookahead_off)
-closeB = request.security(symbolBankNifty, timeframe.period, close, lookahead = barmerge.lookahead_off)
-
-locN = f_loc(closeN, bcN, tcN)
-locB = f_loc(closeB, bcB, tcB)
-
-niftyAboveCPR = locN == 1
-niftyBelowCPR = locN == -1
-bankniftyAboveCPR = locB == 1
-bankniftyBelowCPR = locB == -1
-
-bothAbove = niftyAboveCPR and bankniftyAboveCPR
-bothBelow = niftyBelowCPR and bankniftyBelowCPR
-
-biasText = bothAbove ? "BULLS" : bothBelow ? "BEARS" : "PATIENCE"
-biasColor = bothAbove ? color.new(color.green, 0) : bothBelow ? color.new(color.red, 0) : color.new(color.gray, 0)
-
-t_tradeBias_curr = t_locD == 'Above' ? 'Bulls' : t_locD == 'Below' ? 'Bears' : 'Patience'
-t_tradeBias_pairs = bothAbove ? 'Bulls' : bothBelow ? 'Bears' : 'Patience'
-
-t_tradeBias = t_biasMode == 'Current' ? t_tradeBias_curr : t_tradeBias_pairs
-
-t_tradeBiasCol =
-     t_tradeBias == 'Bulls' ? color.green :
-     t_tradeBias == 'Bears' ? color.red :
-     color.gray
-
-f_loc_text(loc) =>
-    loc == 1 ? "Above CPR" : loc == -1 ? "Below CPR" : "Inside CPR"
-
-f_loc_color(loc) =>
-    loc == 1 ? color.new(color.lime, 0) :
-     loc == -1 ? color.new(color.red, 0) :
-     color.new(color.orange, 0)
-
-var table t_T =
-     table.new(
-         position = t_tableposY + '_' + t_tableposX,
-         columns = 2,
-         rows = 20,
-         bgcolor = t_BGColor,
-         frame_color = t_FrameCol,
-         frame_width = 1,
-         border_color = t_BorderCol,
-         border_width = 1)
-
-if barstate.islast
-
-    table.merge_cells(t_T, 0, 0, 1, 0)
-
-    table.cell(
-         t_T,
-         0,
-         0,
-         'Trust the ' + t_tradeBias,
-         bgcolor = t_tradeBiasCol,
-         text_color = color.white,
-         text_halign = text.align_center,
-         text_formatting = text.format_bold,
-         text_size = t_tablesize)
-
-    table.cell(t_T, 0, 1, 'Monthly', text_color = t_TextColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
-
-    table.cell(
-         t_T,
-         1,
-         1,
-         t_locM,
-         text_color = t_locM == 'Above' ? color.green : t_locM == 'Below' ? color.red : color.orange,
-         text_halign = text.align_center,
-         text_formatting = text.format_bold,
-         text_size = t_tablesize)
-
-    table.cell(t_T, 0, 2, 'Weekly', text_color = t_TextColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
-
-    table.cell(
-         t_T,
-         1,
-         2,
-         t_locW,
-         text_color = t_locW == 'Above' ? color.green : t_locW == 'Below' ? color.red : t_locW == 'Inside' ? color.orange : color.gray,
-         text_halign = text.align_center,
-         text_formatting = text.format_bold,
-         text_size = t_tablesize)
-
-    table.cell(t_T, 0, 3, 'Daily', text_color = t_TextColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
-
-    table.cell(
-         t_T,
-         1,
-         3,
-         t_locD,
-         text_color = t_locD == 'Above' ? color.green : t_locD == 'Below' ? color.red : color.orange,
-         text_halign = text.align_center,
-         text_formatting = text.format_bold,
-         text_size = t_tablesize)
-
-    table.cell(t_T, 0, 4, 'Open', text_color = t_TextColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
-    table.cell(t_T, 1, 4, t_openLoc, text_color = t_openCol, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
-
-    table.cell(t_T, 0, 5, 'Now', text_color = t_TextColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
-    table.cell(t_T, 1, 5, t_currentLoc, text_color = t_currCol, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
-
-    table.merge_cells(t_T, 0, 6, 1, 6)
-
-    table.cell(t_T, 0, 6, '', bgcolor = color.new(t_tradeBiasCol, 50), text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
-
-    table.cell(t_T, 0, 7, 'CPR Width', text_color = t_TextColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
-    table.cell(t_T, 1, 7, t_widthLabel, text_color = t_TextColor, text_halign = text.align_center, text_size = t_tablesize)
-
-    table.cell(t_T, 0, 8, 'CPR Type', text_color = t_TextColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
-    table.cell(t_T, 1, 8, t_typeLabel, text_color = t_TextColor, text_halign = text.align_center, text_size = t_tablesize)
-
 //====================================================================
-// MULTI-TIMEFRAME CPR — FIXED
+// MULTI-TIMEFRAME CPR
 //====================================================================
 
 // Automatic timeframe selection
@@ -1054,87 +795,40 @@ mtf_show_next_day = pivot_mode == 'Manual' and manual_next_day
 mtf_show_next_week = pivot_mode == 'Manual' and manual_next_week
 mtf_show_next_month = pivot_mode == 'Manual' and manual_next_month
 
-// Existing MTF architecture provides 3 historical periods.
-// Number of CPR Back controls how many of these are displayed.
-mtf_hist_count = math.max(1, math.min(look_back, 3))
+// Standalone previous High / Low (Manual mode only)
+mtf_pdhl_d = pivot_mode == 'Manual' and manual_pdhl_d
+mtf_pdhl_w = pivot_mode == 'Manual' and manual_pdhl_w
+mtf_pdhl_m = pivot_mode == 'Manual' and manual_pdhl_m
+
+// MTF architecture provides up to 10 historical periods (D / W / M each).
+mtf_hist_count = math.max(1, math.min(look_back, 10))
 
 var mtf_lines = array.new_line()
 var mtf_labels = array.new_label()
+var mtf_boxes = array.new_box()
 
-// ====================================================================
-// FIX: calc_rs_levels is now kind-aware (Traditional / Fibonacci / Classic /
-// Camarilla). Previously this always used the Traditional formula no matter
-// what "Type" was selected, which is why Fibonacci/Classic/Camarilla never
-// visibly updated on the chart. Camarilla additionally needs the period's
-// close (c), since its R/S levels are calculated from close, not from the
-// pivot median.
-// ====================================================================
-calc_rs_levels(piv, h, l, c) =>
-    rng = h - l
+// Period close times evaluated at global scope (safe on every bar), with a fallback
+_tc_d = time_close(t_resDaily)
+_tc_w = time_close(t_resWeekly)
+_tc_m = time_close(t_resMonthly)
 
-    float _r1 = na
-    float _s1 = na
-    float _r2 = na
-    float _s2 = na
-    float _r3 = na
-    float _s3 = na
-    float _r4 = na
-    float _s4 = na
-    float _r5 = na
-    float _s5 = na
+g_close_d = na(_tc_d) ? time + 86400000 : _tc_d
+g_close_w = na(_tc_w) ? time + 604800000 : _tc_w
+g_close_m = na(_tc_m) ? time + 2592000000 : _tc_m
 
-    if kind == TRADITIONAL
-        _r1 := piv * 2 - l
-        _s1 := piv * 2 - h
-        _r2 := piv + rng
-        _s2 := piv - rng
-        _r3 := _r1 + rng
-        _s3 := _s1 - rng
-        _r4 := _r3 + _r2 - _r1
-        _s4 := _s3 + _s2 - _s1
-        _r5 := _r4 + _r3 - _r2
-        _s5 := _s4 + _s3 - _s2
-
-    else if kind == FIBONACCI
-        _r1 := piv + 0.382 * rng
-        _s1 := piv - 0.382 * rng
-        _r2 := piv + 0.618 * rng
-        _s2 := piv - 0.618 * rng
-        _r3 := piv + 1 * rng
-        _s3 := piv - 1 * rng
-
-    else if kind == CLASSIC
-        _r1 := piv * 2 - l
-        _s1 := piv * 2 - h
-        _r2 := piv + 1 * rng
-        _s2 := piv - 1 * rng
-        _r3 := piv + 2 * rng
-        _s3 := piv - 2 * rng
-        _r4 := piv + 3 * rng
-        _s4 := piv - 3 * rng
-
-    else if kind == CAMARILLA
-        _r1 := c + rng * 1.1 / 12.0
-        _s1 := c - rng * 1.1 / 12.0
-        _r2 := c + rng * 1.1 / 6.0
-        _s2 := c - rng * 1.1 / 6.0
-        _r3 := c + rng * 1.1 / 4.0
-        _s3 := c - rng * 1.1 / 4.0
-        _r4 := c + rng * 1.1 / 2.0
-        _s4 := c - rng * 1.1 / 2.0
-        _r5 := h / l * c
-        _s5 := 2 * c - _r5
-
-    [_r1, _s1, _r2, _s2, _r3, _s3, _r4, _s4, _r5, _s5]
-
+// Builds label text: "NAME - PRICE", "NAME" or "PRICE"
 mtf_level_text(name, y, show_lbl, show_prc) =>
-    show_lbl and show_prc ?
-         str.format('{0} - {1}', name, math.round_to_mintick(y)) :
-         show_lbl ?
-             name :
-             str.format('{0}', math.round_to_mintick(y))
+    string priceTxt = str.tostring(y, format.mintick)
+    show_lbl and show_prc ? name + ' - ' + priceTxt : show_lbl ? name : priceTxt
 
-mtf_draw_hline(x1, x2, y, col, style_, useBarIndex = false) =>
+// Previous High / Low label names: PDH / PDL (daily), PWH / PWL (weekly), PMH / PML (monthly)
+mtf_ph_name(tag) =>
+    tag == 'D' ? 'PDH' : tag == 'W' ? 'PWH' : tag == 'M' ? 'PMH' : tag == 'N.Week' ? 'N.Week-PWH' : tag == 'N.Month' ? 'N.Month-PMH' : 'N.Day-PDH'
+
+mtf_pl_name(tag) =>
+    tag == 'D' ? 'PDL' : tag == 'W' ? 'PWL' : tag == 'M' ? 'PML' : tag == 'N.Week' ? 'N.Week-PWL' : tag == 'N.Month' ? 'N.Month-PML' : 'N.Day-PDL'
+
+mtf_draw_hline(x1, x2, y, col, style_, useBarIndex) =>
     line ln = na
 
     if not na(y) and not na(x1) and not na(x2) and x2 > x1
@@ -1152,29 +846,45 @@ mtf_draw_hline(x1, x2, y, col, style_, useBarIndex = false) =>
 
     ln
 
-mtf_draw_label(x, y, txt, col, useBarIndex = false) =>
-    if not na(y) and not na(x) and txt != ''
+// Label sits just outside the line end (Right) or line start (Left).
+mtf_lvl_label(x, y, name, col, showL, showP, sz, useBarIndex) =>
+    if (showL or showP) and not na(y) and not na(x)
         array.push(
              mtf_labels,
              label.new(
                  x,
                  y,
                  xloc = useBarIndex ? xloc.bar_index : xloc.bar_time,
-                 text = txt,
-                 style = label.style_none,
+                 text = mtf_level_text(name, y, showL, showP),
+                 style = position_labels == 'Left' ? label.style_label_right : label.style_label_left,
                  textcolor = col,
                  color = #00000000,
-                 size = size.tiny))
+                 size = sz))
 
 get_sr_line_style() =>
     sr_line_style == 'Dashed' ? line.style_dashed :
      sr_line_style == 'Dotted' ? line.style_dotted :
      line.style_solid
 
-mtf_draw_sr_line(x1, x2, y, col, useBarIndex) =>
-    mtf_draw_hline(x1, x2, y, col, get_sr_line_style(), useBarIndex)
+// Line style for the Session High / Low (PH / PL) lines
+get_pd_line_style() =>
+    session_hl_line_style == 'Dashed' ? line.style_dashed :
+     session_hl_line_style == 'Dotted' ? line.style_dotted :
+     line.style_solid
 
-draw_mtf_period(tag, x1, x2, piv, bc, tc, r1v, s1v, r2v, s2v, r3v, s3v, r4v, s4v, r5v, s5v, ph, pl, useBarIndex = false) =>
+// One SR level: line + (optional) label/price. Returns the line.
+mtf_sr(tag, lvl, isOn, x1, x2, y, col, labelX, showLbl, useBarIndex) =>
+    line ln = na
+
+    if isOn
+        ln := mtf_draw_hline(x1, x2, y, col, get_sr_line_style(), useBarIndex)
+
+        if showLbl
+            mtf_lvl_label(labelX, y, tag + '-' + lvl, col, sr_show_labels, sr_show_prices, sr_label_size, useBarIndex)
+
+    ln
+
+draw_mtf_period(tag, x1, x2, piv, bc, tc, r1v, s1v, r2v, s2v, r3v, s3v, r4v, s4v, r5v, s5v, ph, pl, pc, useBarIndex, showLbl, infoTxt) =>
 
     style_cpr =
          cpr_line_style == 'Solid' ? line.style_solid :
@@ -1190,175 +900,83 @@ draw_mtf_period(tag, x1, x2, piv, bc, tc, r1v, s1v, r2v, s2v, r3v, s3v, r4v, s4v
     line r1Line = na
     line s1Line = na
 
-    // FIX: Camarilla does not have a CPR (central pivot range) — skip
-    // drawing the Pivot/TC/BC lines, fill, and labels entirely when
-    // Camarilla is selected, for every period (current + Next Day/Week/Month).
+    // Camarilla has no CPR — skip Pivot/TC/BC entirely for that type.
     if cpr_show and kind != CAMARILLA
 
-        pivLine := mtf_draw_hline(
-             x1,
-             x2,
-             piv,
-             cpr_show_lines ? cpr_color : color.new(cpr_color, 100),
-             style_cpr,
-             useBarIndex)
+        cpr_line_col = cpr_show_lines ? cpr_color : color.new(cpr_color, 100)
 
-        tcLine := mtf_draw_hline(
-             x1,
-             x2,
-             tc,
-             cpr_show_lines ? cpr_color : color.new(cpr_color, 100),
-             style_cpr,
-             useBarIndex)
-
-        bcLine := mtf_draw_hline(
-             x1,
-             x2,
-             bc,
-             cpr_show_lines ? cpr_color : color.new(cpr_color, 100),
-             style_cpr,
-             useBarIndex)
+        pivLine := mtf_draw_hline(x1, x2, piv, cpr_line_col, style_cpr, useBarIndex)
+        tcLine := mtf_draw_hline(x1, x2, tc, cpr_line_col, style_cpr, useBarIndex)
+        bcLine := mtf_draw_hline(x1, x2, bc, cpr_line_col, style_cpr, useBarIndex)
 
         if cpr_show_fill and not na(tcLine) and not na(bcLine)
             linefill.new(tcLine, bcLine, color.new(cpr_color, 70))
 
-        if cpr_show_labels or cpr_show_prices
-            mtf_draw_label(
-                 labelX,
-                 piv,
-                 mtf_level_text(tag + ' CPR', piv, cpr_show_labels, cpr_show_prices),
-                 cpr_color,
-                 useBarIndex)
+        if showLbl
+            mtf_lvl_label(labelX, piv, tag + '-P', cpr_color, cpr_show_labels, cpr_show_prices, cpr_label_size, useBarIndex)
+            mtf_lvl_label(labelX, tc, tag + '-TC', cpr_color, cpr_show_labels, cpr_show_prices, cpr_label_size, useBarIndex)
+            mtf_lvl_label(labelX, bc, tag + '-BC', cpr_color, cpr_show_labels, cpr_show_prices, cpr_label_size, useBarIndex)
 
-        if cpr_show_prices
-            mtf_draw_label(
-                 labelX,
-                 tc,
-                 mtf_level_text('', tc, false, true),
-                 cpr_color,
-                 useBarIndex)
+        // CPR info label — only the lines switched on in "CPR Info Label" are shown (current period only).
+        // Positioned by BAR INDEX (not time), so every +1 of "Info Label Offset" moves the
+        // label exactly one bar.
+        if showLbl and infoTxt != '' and not useBarIndex
 
-            mtf_draw_label(
-                 labelX,
-                 bc,
-                 mtf_level_text('', bc, false, true),
-                 cpr_color,
-                 useBarIndex)
+            int tf_ms = math.max(timeframe.in_seconds(timeframe.period) * 1000, 1)
+
+            // Bars between the last bar and the end / start of the CPR lines
+            int bars_to_end = math.max(math.round((x2 - time) / tf_ms), 0)
+            int bars_from_start = math.max(math.round((time - x1) / tf_ms), 0)
+
+            int info_x =
+                 position_labels == 'Left' ?
+                 math.max(bar_index - bars_from_start - info_offset, 0) :
+                 bar_index + math.min(bars_to_end + info_offset, 490)
+
+            float info_y = (tc + bc) / 2.0
+
+            if not na(info_y)
+                array.push(
+                     mtf_labels,
+                     label.new(
+                         info_x,
+                         info_y,
+                         xloc = xloc.bar_index,
+                         text = infoTxt,
+                         style = position_labels == 'Left' ? label.style_label_right : label.style_label_left,
+                         textcolor = info_color,
+                         color = #00000000,
+                         size = info_size,
+                         textalign = position_labels == 'Left' ? text.align_right : text.align_left))
+
+    // Camarilla R3 / S3 alongside the CPR (period's own H/L/C).
+    if cpr_show and show_cam_r3s3 == 'Yes'
+
+        cam_rng = ph - pl
+        cam_r3_val = pc + cam_rng * 1.1 / 4.0
+        cam_s3_val = pc - cam_rng * 1.1 / 4.0
+
+        mtf_draw_hline(x1, x2, cam_r3_val, cam_r3_color, get_sr_line_style(), useBarIndex)
+        mtf_draw_hline(x1, x2, cam_s3_val, cam_s3_color, get_sr_line_style(), useBarIndex)
+
+        if showLbl
+            mtf_lvl_label(labelX, cam_r3_val, tag + '-CamR3', cam_r3_color, cam_show_labels, cam_show_prices, cam_label_size, useBarIndex)
+            mtf_lvl_label(labelX, cam_s3_val, tag + '-CamS3', cam_s3_color, cam_show_labels, cam_show_prices, cam_label_size, useBarIndex)
 
     if sr_show
 
-        // NOTE: For Camarilla, R1/S1/R2/S2 are intentionally not drawn —
-        // only R3/S3/R4/S4/R5/S5 are plotted for that pivot type.
-        // All other pivot types (Traditional/Fibonacci/Classic) are unaffected.
-        if r1_show and kind != CAMARILLA
-            r1Line := mtf_draw_sr_line(x1, x2, r1v, r1_color, useBarIndex)
+        // For Camarilla, R1/S1/R2/S2 are intentionally not drawn.
+        r1Line := mtf_sr(tag, 'R1', r1_show and kind != CAMARILLA, x1, x2, r1v, r1_color, labelX, showLbl, useBarIndex)
+        s1Line := mtf_sr(tag, 'S1', s1_show and kind != CAMARILLA, x1, x2, s1v, s1_color, labelX, showLbl, useBarIndex)
 
-            if sr_show_labels or sr_show_prices
-                mtf_draw_label(
-                     labelX,
-                     r1v,
-                     mtf_level_text(tag + ' R1', r1v, sr_show_labels, sr_show_prices),
-                     r1_color,
-                     useBarIndex)
-
-        if s1_show and kind != CAMARILLA
-            s1Line := mtf_draw_sr_line(x1, x2, s1v, s1_color, useBarIndex)
-
-            if sr_show_labels or sr_show_prices
-                mtf_draw_label(
-                     labelX,
-                     s1v,
-                     mtf_level_text(tag + ' S1', s1v, sr_show_labels, sr_show_prices),
-                     s1_color,
-                     useBarIndex)
-
-        if r2_show and kind != CAMARILLA
-            mtf_draw_sr_line(x1, x2, r2v, r2_color, useBarIndex)
-
-            if sr_show_labels or sr_show_prices
-                mtf_draw_label(
-                     labelX,
-                     r2v,
-                     mtf_level_text(tag + ' R2', r2v, sr_show_labels, sr_show_prices),
-                     r2_color,
-                     useBarIndex)
-
-        if s2_show and kind != CAMARILLA
-            mtf_draw_sr_line(x1, x2, s2v, s2_color, useBarIndex)
-
-            if sr_show_labels or sr_show_prices
-                mtf_draw_label(
-                     labelX,
-                     s2v,
-                     mtf_level_text(tag + ' S2', s2v, sr_show_labels, sr_show_prices),
-                     s2_color,
-                     useBarIndex)
-
-        if r3_show
-            mtf_draw_sr_line(x1, x2, r3v, r3_color, useBarIndex)
-
-            if sr_show_labels or sr_show_prices
-                mtf_draw_label(
-                     labelX,
-                     r3v,
-                     mtf_level_text(tag + ' R3', r3v, sr_show_labels, sr_show_prices),
-                     r3_color,
-                     useBarIndex)
-
-        if s3_show
-            mtf_draw_sr_line(x1, x2, s3v, s3_color, useBarIndex)
-
-            if sr_show_labels or sr_show_prices
-                mtf_draw_label(
-                     labelX,
-                     s3v,
-                     mtf_level_text(tag + ' S3', s3v, sr_show_labels, sr_show_prices),
-                     s3_color,
-                     useBarIndex)
-
-        if r4_show
-            mtf_draw_sr_line(x1, x2, r4v, r4_color, useBarIndex)
-
-            if sr_show_labels or sr_show_prices
-                mtf_draw_label(
-                     labelX,
-                     r4v,
-                     mtf_level_text(tag + ' R4', r4v, sr_show_labels, sr_show_prices),
-                     r4_color,
-                     useBarIndex)
-
-        if s4_show
-            mtf_draw_sr_line(x1, x2, s4v, s4_color, useBarIndex)
-
-            if sr_show_labels or sr_show_prices
-                mtf_draw_label(
-                     labelX,
-                     s4v,
-                     mtf_level_text(tag + ' S4', s4v, sr_show_labels, sr_show_prices),
-                     s4_color,
-                     useBarIndex)
-
-        if r5_show
-            mtf_draw_sr_line(x1, x2, r5v, r5_color, useBarIndex)
-
-            if sr_show_labels or sr_show_prices
-                mtf_draw_label(
-                     labelX,
-                     r5v,
-                     mtf_level_text(tag + ' R5', r5v, sr_show_labels, sr_show_prices),
-                     r5_color,
-                     useBarIndex)
-
-        if s5_show
-            mtf_draw_sr_line(x1, x2, s5v, s5_color, useBarIndex)
-
-            if sr_show_labels or sr_show_prices
-                mtf_draw_label(
-                     labelX,
-                     s5v,
-                     mtf_level_text(tag + ' S5', s5v, sr_show_labels, sr_show_prices),
-                     s5_color,
-                     useBarIndex)
+        mtf_sr(tag, 'R2', r2_show and kind != CAMARILLA, x1, x2, r2v, r2_color, labelX, showLbl, useBarIndex)
+        mtf_sr(tag, 'S2', s2_show and kind != CAMARILLA, x1, x2, s2v, s2_color, labelX, showLbl, useBarIndex)
+        mtf_sr(tag, 'R3', r3_show, x1, x2, r3v, r3_color, labelX, showLbl, useBarIndex)
+        mtf_sr(tag, 'S3', s3_show, x1, x2, s3v, s3_color, labelX, showLbl, useBarIndex)
+        mtf_sr(tag, 'R4', r4_show, x1, x2, r4v, r4_color, labelX, showLbl, useBarIndex)
+        mtf_sr(tag, 'S4', s4_show, x1, x2, s4v, s4_color, labelX, showLbl, useBarIndex)
+        mtf_sr(tag, 'R5', r5_show, x1, x2, r5v, r5_color, labelX, showLbl, useBarIndex)
+        mtf_sr(tag, 'S5', s5_show, x1, x2, s5v, s5_color, labelX, showLbl, useBarIndex)
 
     if fill_cpr_r1 and not na(pivLine) and not na(r1Line)
         linefill.new(pivLine, r1Line, fill_cpr_r1_col)
@@ -1366,194 +984,161 @@ draw_mtf_period(tag, x1, x2, piv, bc, tc, r1v, s1v, r2v, s2v, r3v, s3v, r4v, s4v
     if fill_cpr_s1 and not na(pivLine) and not na(s1Line)
         linefill.new(pivLine, s1Line, fill_cpr_s1_col)
 
-    // Previous High/Low (PDH/PDL) — independent of pivot Type, so this
-    // already applies identically to Camarilla, Traditional, Fibonacci
-    // and Classic, including on Next Day/Week/Month.
+    // Session High / Low — previous period High (PDH / PWH / PMH) and Low (PDL / PWL / PML).
     if show_day
 
-        pd_style =
-             session_hl_line_style == 'Solid' ? line.style_solid :
-             session_hl_line_style == 'Dashed' ? line.style_dashed :
-             line.style_dotted
+        pd_style = get_pd_line_style()
 
         if not na(ph)
+            mtf_draw_hline(x1, x2, ph, session_high_color, pd_style, useBarIndex)
 
-            mtf_draw_hline(
-                 x1,
-                 x2,
-                 ph,
-                 session_high_color,
-                 pd_style,
-                 useBarIndex)
-
-            if pd_show_labels or pd_show_prices
-                mtf_draw_label(
-                     labelX,
-                     ph,
-                     mtf_level_text(tag + ' PH', ph, pd_show_labels, pd_show_prices),
-                     session_high_color,
-                     useBarIndex)
+            if showLbl
+                mtf_lvl_label(labelX, ph, mtf_ph_name(tag), session_high_color, pd_show_labels, pd_show_prices, pd_label_size, useBarIndex)
 
         if not na(pl)
+            mtf_draw_hline(x1, x2, pl, session_low_color, pd_style, useBarIndex)
 
-            mtf_draw_hline(
-                 x1,
-                 x2,
-                 pl,
-                 session_low_color,
-                 pd_style,
-                 useBarIndex)
-
-            if pd_show_labels or pd_show_prices
-                mtf_draw_label(
-                     labelX,
-                     pl,
-                     mtf_level_text(tag + ' PL', pl, pd_show_labels, pd_show_prices),
-                     session_low_color,
-                     useBarIndex)
+            if showLbl
+                mtf_lvl_label(labelX, pl, mtf_pl_name(tag), session_low_color, pd_show_labels, pd_show_prices, pd_label_size, useBarIndex)
 
 // ====================================================================
-// IMPORTANT FIX #1
-// Daily/Weekly/Monthly historical period timestamps are taken directly
-// from their own timeframe. This avoids incorrect 24h/7d/30d offsets.
+// Virgin CPR zones.
+// A CPR (period k) is virgin when price never traded inside it during period k.
+// The untouched CPR box is then extended through the following period (k - 1).
+// hs / ls / cs hold the previous-period High / Low / Close (index 0 = period 1 back).
+// times holds period start times (index 0 = current period start).
+//
+// Optional "Hide Virgin CPR once touched":
+//   k == 1 -> the extended period is the CURRENT one (still running), so the zone stays
+//             visible until that period ends, even if price already touched it.
+//   k >= 2 -> the extended period is finished (its High / Low = index k - 2); if price
+//             touched the zone during it, the zone is hidden.
 // ====================================================================
+draw_virgin_zones(hs, ls, cs, times, gClose) =>
+    int maxK = math.min(math.max(mtf_hist_count, 1), 9)
 
-[d_t0, d_t1, d_t2, d_t3] =
-     request.security(
-         syminfo.tickerid,
-         t_resDaily,
-         [time, time[1], time[2], time[3]],
-         lookahead = barmerge.lookahead_on)
+    for k = 1 to maxK
 
-[w_t0, w_t1, w_t2, w_t3] =
-     request.security(
-         syminfo.tickerid,
-         t_resWeekly,
-         [time, time[1], time[2], time[3]],
-         lookahead = barmerge.lookahead_on)
+        if k == 1 or hist_sr_show
 
-[m_t0, m_t1, m_t2, m_t3] =
-     request.security(
-         syminfo.tickerid,
-         t_resMonthly,
-         [time, time[1], time[2], time[3]],
-         lookahead = barmerge.lookahead_on)
+            float ph_cpr = array.get(hs, k)
+            float pl_cpr = array.get(ls, k)
+            float pc_cpr = array.get(cs, k)
 
-// Daily CPR source periods
-[d_h1, d_l1, d_c1] =
-     request.security(
-         syminfo.tickerid,
-         t_resDaily,
-         [high[1], low[1], close[1]],
-         lookahead = barmerge.lookahead_on)
+            // High / Low of period k itself (the period in which this CPR was active)
+            float ph_per = array.get(hs, k - 1)
+            float pl_per = array.get(ls, k - 1)
 
-[d_h2, d_l2, d_c2] =
-     request.security(
-         syminfo.tickerid,
-         t_resDaily,
-         [high[2], low[2], close[2]],
-         lookahead = barmerge.lookahead_on)
+            int xL = array.get(times, k - 1)
+            int xR = k == 1 ? gClose : array.get(times, k - 2)
 
-[d_h3, d_l3, d_c3] =
-     request.security(
-         syminfo.tickerid,
-         t_resDaily,
-         [high[3], low[3], close[3]],
-         lookahead = barmerge.lookahead_on)
+            [bcv, tcv, pivv] = t_getBounds(ph_cpr, pl_cpr, pc_cpr)
 
-[d_bc1, d_tc1, d_piv1] = t_getBounds(t_resDaily, d_h1, d_l1, d_c1)
-[d_bc2, d_tc2, d_piv2] = t_getBounds(t_resDaily, d_h2, d_l2, d_c2)
-[d_bc3, d_tc3, d_piv3] = t_getBounds(t_resDaily, d_h3, d_l3, d_c3)
+            float lo = math.min(bcv, tcv)
+            float hi = math.max(bcv, tcv)
 
-// Weekly CPR source periods
-[w_h1, w_l1, w_c1] =
-     request.security(
-         syminfo.tickerid,
-         t_resWeekly,
-         [high[1], low[1], close[1]],
-         lookahead = barmerge.lookahead_on)
+            bool touched = ph_per >= lo and pl_per <= hi
 
-[w_h2, w_l2, w_c2] =
-     request.security(
-         syminfo.tickerid,
-         t_resWeekly,
-         [high[2], low[2], close[2]],
-         lookahead = barmerge.lookahead_on)
+            // Touched while it was extended (only judged once that extended period is over)
+            bool extTouched = false
 
-[w_h3, w_l3, w_c3] =
-     request.security(
-         syminfo.tickerid,
-         t_resWeekly,
-         [high[3], low[3], close[3]],
-         lookahead = barmerge.lookahead_on)
+            if virgin_hide_touched and k >= 2
+                float ph_ext = array.get(hs, k - 2)
+                float pl_ext = array.get(ls, k - 2)
+                extTouched := ph_ext >= lo and pl_ext <= hi
 
-[w_bc1, w_tc1, w_piv1] = t_getBounds(t_resWeekly, w_h1, w_l1, w_c1)
-[w_bc2, w_tc2, w_piv2] = t_getBounds(t_resWeekly, w_h2, w_l2, w_c2)
-[w_bc3, w_tc3, w_piv3] = t_getBounds(t_resWeekly, w_h3, w_l3, w_c3)
+            if not na(lo) and not na(hi) and not na(ph_per) and not na(pl_per) and not na(xL) and not na(xR) and xR > xL and not touched and not extTouched
 
-// Monthly CPR source periods
-[m_h1, m_l1, m_c1] =
-     request.security(
-         syminfo.tickerid,
-         t_resMonthly,
-         [high[1], low[1], close[1]],
-         lookahead = barmerge.lookahead_on)
+                array.push(
+                     mtf_boxes,
+                     box.new(
+                         left = xL,
+                         top = hi,
+                         right = xR,
+                         bottom = lo,
+                         xloc = xloc.bar_time,
+                         border_color = virgin_color,
+                         border_width = 1,
+                         border_style = line.style_dashed,
+                         bgcolor = color.new(virgin_color, 88),
+                         text = virgin_text,
+                         text_size = virgin_size,
+                         text_color = virgin_color,
+                         text_halign = text.align_center,
+                         text_valign = text.align_center))
 
-[m_h2, m_l2, m_c2] =
-     request.security(
-         syminfo.tickerid,
-         t_resMonthly,
-         [high[2], low[2], close[2]],
-         lookahead = barmerge.lookahead_on)
-
-[m_h3, m_l3, m_c3] =
-     request.security(
-         syminfo.tickerid,
-         t_resMonthly,
-         [high[3], low[3], close[3]],
-         lookahead = barmerge.lookahead_on)
-
-[m_bc1, m_tc1, m_piv1] = t_getBounds(t_resMonthly, m_h1, m_l1, m_c1)
-[m_bc2, m_tc2, m_piv2] = t_getBounds(t_resMonthly, m_h2, m_l2, m_c2)
-[m_bc3, m_tc3, m_piv3] = t_getBounds(t_resMonthly, m_h3, m_l3, m_c3)
+    true
 
 // ====================================================================
-// IMPORTANT FIX #2
-// Next Day CPR uses CURRENT Daily H/L/C and is drawn from the exact
-// Daily close into the next Daily period.
+// Standalone previous High / Low (PDH / PDL, PWH / PWL, PMH / PML)
+// Independent of the CPR; uses the Session High Low styling.
+// ====================================================================
+draw_prev_hl(tag, x1, x2, ph, pl, showLbl) =>
+    pd_style = get_pd_line_style()
+    labelX = position_labels == 'Left' ? x1 : x2
+
+    if not na(ph)
+        mtf_draw_hline(x1, x2, ph, session_high_color, pd_style, false)
+
+        if showLbl
+            mtf_lvl_label(labelX, ph, mtf_ph_name(tag), session_high_color, pd_show_labels, pd_show_prices, pd_label_size, false)
+
+    if not na(pl)
+        mtf_draw_hline(x1, x2, pl, session_low_color, pd_style, false)
+
+        if showLbl
+            mtf_lvl_label(labelX, pl, mtf_pl_name(tag), session_low_color, pd_show_labels, pd_show_prices, pd_label_size, false)
+
+    true
+
+draw_pdhl_series(tag, hs, ls, times, gClose) =>
+    for k = 0 to mtf_hist_count - 1
+
+        if k == 0 or hist_sr_show
+
+            int x1 = array.get(times, k)
+            int x2 = k == 0 ? gClose : array.get(times, k - 1)
+
+            float ph = array.get(hs, k)
+            float pl = array.get(ls, k)
+
+            if not na(x1) and not na(x2) and x2 > x1
+                draw_prev_hl(tag, x1, x2, ph, pl, k == 0)
+
+    true
+
+// ====================================================================
+// CPR INFO LABEL TEXT (Daily / Weekly / Monthly)
+// Each line is controlled by its own toggle in the "CPR Info Label" group.
 // ====================================================================
 
-[nd_h, nd_l, nd_c] =
-     request.security(
-         syminfo.tickerid,
-         t_resDaily,
-         [high, low, close],
-         lookahead = barmerge.lookahead_on)
+f_type_text(t) =>
+    t == 'Asc Rev' ? 'Ascending Reversal CPR' : t == 'Desc Rev' ? 'Descending Reversal CPR' : t + ' CPR'
 
-[nd_bc, nd_tc, nd_piv] = t_getBounds(t_resDaily, nd_h, nd_l, nd_c)
+f_info_text(periodName, widthLbl, phase, typeLbl) =>
+    string txt = ''
 
-// Next Week
-[nw_h, nw_l, nw_c] =
-     request.security(
-         syminfo.tickerid,
-         t_resWeekly,
-         [high, low, close],
-         lookahead = barmerge.lookahead_on)
+    if info_show_period
+        txt := periodName + ' CPR'
 
-[nw_bc, nw_tc, nw_piv] = t_getBounds(t_resWeekly, nw_h, nw_l, nw_c)
+    if info_show_width
+        txt := (txt == '' ? '' : txt + '\n') + widthLbl + ' CPR'
 
-// Next Month
-[nm_h, nm_l, nm_c] =
-     request.security(
-         syminfo.tickerid,
-         t_resMonthly,
-         [high, low, close],
-         lookahead = barmerge.lookahead_on)
+    if info_show_atr
+        txt := (txt == '' ? '' : txt + '\n') + 'ATR ' + phase
 
-[nm_bc, nm_tc, nm_piv] = t_getBounds(t_resMonthly, nm_h, nm_l, nm_c)
+    if info_show_type
+        txt := (txt == '' ? '' : txt + '\n') + f_type_text(typeLbl)
+
+    txt
+
+d_infoTxt = f_info_text('Daily', t_widthLabel, f_atr_phase(d_atrRatio), t_typeLabel)
+w_infoTxt = f_info_text('Weekly', t_widthLabelW, f_atr_phase(w_atrRatio), w_typeNow)
+m_infoTxt = f_info_text('Monthly', t_widthLabelM, f_atr_phase(m_atrRatio), m_typeNow)
 
 // ====================================================================
-// MTF DRAWING
+// MTF DRAWING (last bar only)
+// Labels / prices are drawn for the CURRENT period only (k == 0).
 // ====================================================================
 
 if barstate.islast
@@ -1564,43 +1149,29 @@ if barstate.islast
     while array.size(mtf_labels) > 0
         label.delete(array.shift(mtf_labels))
 
-    // -----------------------------------------------------------
-    // IMPORTANT FIX #3 - Next Day/Week/Month bar-index projection
-    // These are drawn with xloc.bar_index (not bar_time) so they
-    // land on the NEXT real trading session's bars, automatically
-    // skipping weekends/holidays instead of getting squeezed into
-    // an invisible sliver right after the last printed candle.
-    // -----------------------------------------------------------
+    while array.size(mtf_boxes) > 0
+        box.delete(array.shift(mtf_boxes))
+
+    // Next Day/Week/Month are drawn with xloc.bar_index so they land on the
+    // NEXT real trading session's bars (skipping weekends/holidays).
     barsPerTradingDay = timeframe.isintraday ? math.max(math.round(375.0 / timeframe.multiplier), 1) : 1
     barsPerTradingWeek = barsPerTradingDay * 5
     barsPerTradingMonth = barsPerTradingDay * 21
 
-    // ------------------------------------------------------------------
-    // BUG FIX: Pine Script cannot render xloc.bar_index drawings more than
-    // ~500 bars into the future — anything beyond that is silently dropped.
-    // On fast intraday charts (below 5min for Weekly, below 30min for
-    // Monthly) barsPerTradingWeek/Month exceeded that ceiling, which is
-    // why Next Week / Next Month CPR disappeared on those timeframes.
-    // Clamping the projected offset keeps the box within the allowed
-    // range on every timeframe while leaving all other logic untouched.
-    // ------------------------------------------------------------------
+    // Drawings more than ~500 bars in the future are dropped, so clamp.
     MAX_FUTURE_OFFSET = 490
 
     // ---------------------------------------------------------------
-    // DAILY CPR HISTORY — FIXED
+    // DAILY CPR
     // ---------------------------------------------------------------
 
     if mtf_effDaily
 
-        d_pivs = array.from(d_piv1, d_piv2, d_piv3)
-        d_bcs = array.from(d_bc1, d_bc2, d_bc3)
-        d_tcs = array.from(d_tc1, d_tc2, d_tc3)
+        d_hs = array.from(d_h1, d_h2, d_h3, d_h4, d_h5, d_h6, d_h7, d_h8, d_h9, d_h10)
+        d_ls = array.from(d_l1, d_l2, d_l3, d_l4, d_l5, d_l6, d_l7, d_l8, d_l9, d_l10)
+        d_cs = array.from(d_c1, d_c2, d_c3, d_c4, d_c5, d_c6, d_c7, d_c8, d_c9, d_c10)
 
-        d_hs = array.from(d_h1, d_h2, d_h3)
-        d_ls = array.from(d_l1, d_l2, d_l3)
-        d_cs = array.from(d_c1, d_c2, d_c3)
-
-        d_times = array.from(d_t0, d_t1, d_t2, d_t3)
+        d_times = array.from(d_t0, d_t1, d_t2, d_t3, d_t4, d_t5, d_t6, d_t7, d_t8, d_t9, d_t10)
 
         for k = 0 to mtf_hist_count - 1
 
@@ -1610,16 +1181,14 @@ if barstate.islast
 
                 x2 =
                      k == 0 ?
-                     time_close(t_resDaily) :
+                     g_close_d :
                      array.get(d_times, k - 1)
-
-                piv = array.get(d_pivs, k)
-                bc = array.get(d_bcs, k)
-                tc = array.get(d_tcs, k)
 
                 ph = array.get(d_hs, k)
                 pl = array.get(d_ls, k)
                 pc = array.get(d_cs, k)
+
+                [bc, tc, piv] = t_getBounds(ph, pl, pc)
 
                 [r1v, s1v, r2v, s2v, r3v, s3v, r4v, s4v, r5v, s5v] =
                      calc_rs_levels(piv, ph, pl, pc)
@@ -1627,7 +1196,7 @@ if barstate.islast
                 if not na(x1) and not na(x2) and x2 > x1 and not na(piv)
 
                     draw_mtf_period(
-                         k == 0 ? 'D' : 'D-' + str.tostring(k),
+                         'D',
                          x1,
                          x2,
                          piv,
@@ -1644,23 +1213,26 @@ if barstate.islast
                          r5v,
                          s5v,
                          ph,
-                         pl)
+                         pl,
+                         pc,
+                         false,
+                         k == 0,
+                         k == 0 ? d_infoTxt : '')
+
+        if virgin_show and cpr_show and kind != CAMARILLA
+            draw_virgin_zones(d_hs, d_ls, d_cs, d_times, g_close_d)
 
     // ---------------------------------------------------------------
-    // WEEKLY CPR HISTORY
+    // WEEKLY CPR
     // ---------------------------------------------------------------
 
     if mtf_effWeekly
 
-        w_pivs = array.from(w_piv1, w_piv2, w_piv3)
-        w_bcs = array.from(w_bc1, w_bc2, w_bc3)
-        w_tcs = array.from(w_tc1, w_tc2, w_tc3)
+        w_hs = array.from(w_h1, w_h2, w_h3, w_h4, w_h5, w_h6, w_h7, w_h8, w_h9, w_h10)
+        w_ls = array.from(w_l1, w_l2, w_l3, w_l4, w_l5, w_l6, w_l7, w_l8, w_l9, w_l10)
+        w_cs = array.from(w_c1, w_c2, w_c3, w_c4, w_c5, w_c6, w_c7, w_c8, w_c9, w_c10)
 
-        w_hs = array.from(w_h1, w_h2, w_h3)
-        w_ls = array.from(w_l1, w_l2, w_l3)
-        w_cs = array.from(w_c1, w_c2, w_c3)
-
-        w_times = array.from(w_t0, w_t1, w_t2, w_t3)
+        w_times = array.from(w_t0, w_t1, w_t2, w_t3, w_t4, w_t5, w_t6, w_t7, w_t8, w_t9, w_t10)
 
         for k = 0 to mtf_hist_count - 1
 
@@ -1670,16 +1242,14 @@ if barstate.islast
 
                 x2 =
                      k == 0 ?
-                     time_close(t_resWeekly) :
+                     g_close_w :
                      array.get(w_times, k - 1)
-
-                piv = array.get(w_pivs, k)
-                bc = array.get(w_bcs, k)
-                tc = array.get(w_tcs, k)
 
                 ph = array.get(w_hs, k)
                 pl = array.get(w_ls, k)
                 pc = array.get(w_cs, k)
+
+                [bc, tc, piv] = t_getBounds(ph, pl, pc)
 
                 [r1v, s1v, r2v, s2v, r3v, s3v, r4v, s4v, r5v, s5v] =
                      calc_rs_levels(piv, ph, pl, pc)
@@ -1687,7 +1257,7 @@ if barstate.islast
                 if not na(x1) and not na(x2) and x2 > x1 and not na(piv)
 
                     draw_mtf_period(
-                         k == 0 ? 'W' : 'W-' + str.tostring(k),
+                         'W',
                          x1,
                          x2,
                          piv,
@@ -1704,23 +1274,26 @@ if barstate.islast
                          r5v,
                          s5v,
                          ph,
-                         pl)
+                         pl,
+                         pc,
+                         false,
+                         k == 0,
+                         k == 0 ? w_infoTxt : '')
+
+        if virgin_show and cpr_show and kind != CAMARILLA
+            draw_virgin_zones(w_hs, w_ls, w_cs, w_times, g_close_w)
 
     // ---------------------------------------------------------------
-    // MONTHLY CPR HISTORY
+    // MONTHLY CPR
     // ---------------------------------------------------------------
 
     if mtf_effMonthly
 
-        m_pivs = array.from(m_piv1, m_piv2, m_piv3)
-        m_bcs = array.from(m_bc1, m_bc2, m_bc3)
-        m_tcs = array.from(m_tc1, m_tc2, m_tc3)
+        m_hs = array.from(m_h1, m_h2, m_h3, m_h4, m_h5, m_h6, m_h7, m_h8, m_h9, m_h10)
+        m_ls = array.from(m_l1, m_l2, m_l3, m_l4, m_l5, m_l6, m_l7, m_l8, m_l9, m_l10)
+        m_cs = array.from(m_c1, m_c2, m_c3, m_c4, m_c5, m_c6, m_c7, m_c8, m_c9, m_c10)
 
-        m_hs = array.from(m_h1, m_h2, m_h3)
-        m_ls = array.from(m_l1, m_l2, m_l3)
-        m_cs = array.from(m_c1, m_c2, m_c3)
-
-        m_times = array.from(m_t0, m_t1, m_t2, m_t3)
+        m_times = array.from(m_t0, m_t1, m_t2, m_t3, m_t4, m_t5, m_t6, m_t7, m_t8, m_t9, m_t10)
 
         for k = 0 to mtf_hist_count - 1
 
@@ -1730,16 +1303,14 @@ if barstate.islast
 
                 x2 =
                      k == 0 ?
-                     time_close(t_resMonthly) :
+                     g_close_m :
                      array.get(m_times, k - 1)
-
-                piv = array.get(m_pivs, k)
-                bc = array.get(m_bcs, k)
-                tc = array.get(m_tcs, k)
 
                 ph = array.get(m_hs, k)
                 pl = array.get(m_ls, k)
                 pc = array.get(m_cs, k)
+
+                [bc, tc, piv] = t_getBounds(ph, pl, pc)
 
                 [r1v, s1v, r2v, s2v, r3v, s3v, r4v, s4v, r5v, s5v] =
                      calc_rs_levels(piv, ph, pl, pc)
@@ -1747,7 +1318,7 @@ if barstate.islast
                 if not na(x1) and not na(x2) and x2 > x1 and not na(piv)
 
                     draw_mtf_period(
-                         k == 0 ? 'M' : 'M-' + str.tostring(k),
+                         'M',
                          x1,
                          x2,
                          piv,
@@ -1764,11 +1335,46 @@ if barstate.islast
                          r5v,
                          s5v,
                          ph,
-                         pl)
+                         pl,
+                         pc,
+                         false,
+                         k == 0,
+                         k == 0 ? m_infoTxt : '')
+
+        if virgin_show and cpr_show and kind != CAMARILLA
+            draw_virgin_zones(m_hs, m_ls, m_cs, m_times, g_close_m)
 
     // ---------------------------------------------------------------
-    // NEXT DAY CPR — FIXED (bar-index projection, clamped to 500-bar limit)
-    // (Now also correct for Camarilla — SR levels derive from nd_c.)
+    // MANUAL PDH / PDL, PWH / PWL, PMH / PML (standalone)
+    // Skipped when "Show Previous High/Low" already draws them with that period's CPR.
+    // ---------------------------------------------------------------
+
+    if mtf_pdhl_d and not (show_day and mtf_effDaily)
+        draw_pdhl_series(
+             'D',
+             array.from(d_h1, d_h2, d_h3, d_h4, d_h5, d_h6, d_h7, d_h8, d_h9, d_h10),
+             array.from(d_l1, d_l2, d_l3, d_l4, d_l5, d_l6, d_l7, d_l8, d_l9, d_l10),
+             array.from(d_t0, d_t1, d_t2, d_t3, d_t4, d_t5, d_t6, d_t7, d_t8, d_t9, d_t10),
+             g_close_d)
+
+    if mtf_pdhl_w and not (show_day and mtf_effWeekly)
+        draw_pdhl_series(
+             'W',
+             array.from(w_h1, w_h2, w_h3, w_h4, w_h5, w_h6, w_h7, w_h8, w_h9, w_h10),
+             array.from(w_l1, w_l2, w_l3, w_l4, w_l5, w_l6, w_l7, w_l8, w_l9, w_l10),
+             array.from(w_t0, w_t1, w_t2, w_t3, w_t4, w_t5, w_t6, w_t7, w_t8, w_t9, w_t10),
+             g_close_w)
+
+    if mtf_pdhl_m and not (show_day and mtf_effMonthly)
+        draw_pdhl_series(
+             'M',
+             array.from(m_h1, m_h2, m_h3, m_h4, m_h5, m_h6, m_h7, m_h8, m_h9, m_h10),
+             array.from(m_l1, m_l2, m_l3, m_l4, m_l5, m_l6, m_l7, m_l8, m_l9, m_l10),
+             array.from(m_t0, m_t1, m_t2, m_t3, m_t4, m_t5, m_t6, m_t7, m_t8, m_t9, m_t10),
+             g_close_m)
+
+    // ---------------------------------------------------------------
+    // NEXT DAY CPR
     // ---------------------------------------------------------------
 
     if mtf_show_next_day and not na(nd_piv) and not na(nd_h) and not na(nd_l)
@@ -1798,10 +1404,13 @@ if barstate.islast
              nds5,
              nd_h,
              nd_l,
-             true)
+             nd_c,
+             true,
+             true,
+             '')
 
     // ---------------------------------------------------------------
-    // NEXT WEEK CPR — FIXED (bar-index projection, clamped to 500-bar limit)
+    // NEXT WEEK CPR
     // ---------------------------------------------------------------
 
     if mtf_show_next_week and not na(nw_piv) and not na(nw_h) and not na(nw_l)
@@ -1831,10 +1440,13 @@ if barstate.islast
              nws5,
              nw_h,
              nw_l,
-             true)
+             nw_c,
+             true,
+             true,
+             '')
 
     // ---------------------------------------------------------------
-    // NEXT MONTH CPR — FIXED (bar-index projection, clamped to 500-bar limit)
+    // NEXT MONTH CPR
     // ---------------------------------------------------------------
 
     if mtf_show_next_month and not na(nm_piv) and not na(nm_h) and not na(nm_l)
@@ -1864,7 +1476,10 @@ if barstate.islast
              nms5,
              nm_h,
              nm_l,
-             true)
+             nm_c,
+             true,
+             true,
+             '')
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Multi Indicators — Bollinger Bands / Session VWAP
@@ -1912,17 +1527,16 @@ fill(mi_p1, mi_p2, color = mi_BBfill_color)
 // ──────────────────────────────────────────────────────────────────────────────
 group_dvwap = 'Day-Open Anchored VWAP'
 
-dvwap_show         = input.bool(false,               'Show Day-Open VWAP',         group = group_dvwap)
-dvwap_history_mode = input.string('Only Today',       'History Mode',               options = ['All Days', 'Only Today'], group = group_dvwap,
-                                  tooltip = 'All Days: plots VWAP for every trading day.\nOnly Today: draws VWAP only for the current session.')
-show_only_today    = dvwap_history_mode == 'Only Today'
+dvwap_show = input.bool(false, 'Show Day-Open VWAP', group = group_dvwap)
+dvwap_history_mode = input.string('Only Today', 'History Mode', options = ['All Days', 'Only Today'], group = group_dvwap, tooltip = 'All Days: plots VWAP for every trading day.\nOnly Today: shows VWAP only for the latest session on the chart.')
+show_only_today = dvwap_history_mode == 'Only Today'
 
-dvwap_src          = input.source(hlc3,             'Price (VWAP source)',        group = group_dvwap)
-dvwap_col_above    = input.color(color.new(color.teal,   0), 'Color when price ≥ VWAP', group = group_dvwap)
-dvwap_col_below    = input.color(color.new(color.purple, 0), 'Color when price < VWAP',  group = group_dvwap)
-dvwap_width        = input.int(2,                   'Line width',                 minval = 1, maxval = 5, group = group_dvwap)
-dvwap_show_label   = input.bool(true,               'Show VWAP Label',            group = group_dvwap)
-dvwap_mark_anchor  = input.bool(true,               'Mark Day Open (anchor)',     group = group_dvwap)
+dvwap_src = input.source(hlc3, 'Price (VWAP source)', group = group_dvwap)
+dvwap_col_above = input.color(color.new(color.teal, 0), 'Color when price ≥ VWAP', group = group_dvwap)
+dvwap_col_below = input.color(color.new(color.purple, 0), 'Color when price < VWAP', group = group_dvwap)
+dvwap_width = input.int(2, 'Line width', minval = 1, maxval = 5, group = group_dvwap)
+dvwap_show_label = input.bool(true, 'Show VWAP Label', group = group_dvwap)
+dvwap_mark_anchor = input.bool(true, 'Mark Day Open (anchor)', group = group_dvwap)
 
 is_intraday = timeframe.isintraday
 
@@ -1931,45 +1545,37 @@ new_day = na(time_tradingday[1]) or (time_tradingday != time_tradingday[1])
 
 // Reset cumulative sums each new day
 var float _pv_sum = na
-var float _v_sum  = na
+var float _v_sum = na
 if is_intraday
     if new_day or na(_pv_sum) or na(_v_sum)
         _pv_sum := dvwap_src * volume
-        _v_sum  := volume
+        _v_sum := volume
     else
         _pv_sum += dvwap_src * volume
-        _v_sum  += volume
+        _v_sum += volume
 
 day_open_vwap = is_intraday and _v_sum > 0 ? _pv_sum / _v_sum : na
-dv_col        = close >= day_open_vwap ? dvwap_col_above : dvwap_col_below
+dv_col = close >= day_open_vwap ? dvwap_col_above : dvwap_col_below
 
-// ── GLOBAL-SCOPE PLOTS ──
-plot(dvwap_show and is_intraday and not show_only_today ? day_open_vwap : na,
-     title = 'Day-Open VWAP (All Days)', color = dv_col, linewidth = dvwap_width, display=display.all-display.status_line)
+// Exchange-timezone calendar date as a single number (used for the "Only Today" filter)
+f_exch_date(t) =>
+    year(t, syminfo.timezone) * 10000 + month(t, syminfo.timezone) * 100 + dayofmonth(t, syminfo.timezone)
 
-// Anchor marker for "All Days"
-plotshape(dvwap_mark_anchor and dvwap_show and is_intraday and new_day and not show_only_today,
+is_today = f_exch_date(time) == f_exch_date(last_bar_time)
+
+dv_visible = dvwap_show and is_intraday and (not show_only_today or is_today)
+
+// ── ONE plot handles both history modes (no per-bar line objects) ──
+plot(dv_visible ? day_open_vwap : na,
+     title = 'Day-Open VWAP', color = dv_col, linewidth = dvwap_width, style = plot.style_linebr, display = display.all - display.status_line)
+
+// Anchor marker at each shown day's open
+plotshape(dv_visible and dvwap_mark_anchor and new_day,
           title = 'Day-Open VWAP Anchor',
           style = shape.triangleup, location = location.belowbar,
-          size = size.tiny, color = color.new(dv_col, 0), display=display.all-display.status_line)
+          size = size.tiny, color = color.new(dv_col, 0), display = display.all - display.status_line)
 
-// ── ONLY-TODAY VWAP LINES ──
-var line[] dv_lines = array.new_line()
-if show_only_today and dvwap_show and is_intraday
-    if new_day and array.size(dv_lines) > 0
-        for i = 0 to array.size(dv_lines) - 1
-            line.delete(array.get(dv_lines, i))
-        array.clear(dv_lines)
-
-    is_same_session_as_prev = not new_day
-    if is_same_session_as_prev and not na(day_open_vwap) and not na(day_open_vwap[1])
-        l = line.new(x1 = time[1], y1 = day_open_vwap[1],
-                     x2 = time,   y2 = day_open_vwap,
-                     xloc = xloc.bar_time, extend = extend.none,
-                     color = dv_col, width = dvwap_width)
-        array.push(dv_lines, l)
-
-// ── LABELS ──
+// ── LABEL on the last bar ──
 var label dvwap_lbl = na
 if barstate.islast and dvwap_show and dvwap_show_label and is_intraday and not na(day_open_vwap)
     label.delete(dvwap_lbl)
@@ -1977,14 +1583,6 @@ if barstate.islast and dvwap_show and dvwap_show_label and is_intraday and not n
     dvwap_lbl := label.new(x = time, y = day_open_vwap, xloc = xloc.bar_time,
                            text = str.format('                                VWAP AA - {0}', rounded_vwap),
                            textcolor = dv_col, style = label.style_none, color = color.new(color.black, 100))
-
-// For "Only Today", mark today's anchor with a small ▲ label
-var label dvwap_anchor_lbl = na
-if dvwap_mark_anchor and show_only_today and dvwap_show and is_intraday and new_day
-    label.delete(dvwap_anchor_lbl)
-    dvwap_anchor_lbl := label.new(x = time, y = low, xloc = xloc.bar_time,
-                                  text = '▲', textcolor = dv_col, style = label.style_label_up,
-                                  color = color.new(color.black, 100))
 
 // ──────────────────────────────────────────────────────────────────────────────
 // UT Bot
@@ -2032,21 +1630,8 @@ ut_xATRTrailingStopSell :=
          ut_src - ut_nLossSell :
          ut_src + ut_nLossSell
 
-ut_pos = 0
-
-ut_pos :=
-     ut_src[1] < nz(ut_xATRTrailingStopBuy[1], 0) and
-     ut_src > nz(ut_xATRTrailingStopBuy[1], 0) ? 1 :
-     ut_src[1] > nz(ut_xATRTrailingStopSell[1], 0) and
-     ut_src < nz(ut_xATRTrailingStopSell[1], 0) ? -1 :
-     nz(ut_pos[1], 0)
-
-ut_xcolor = ut_pos == -1 ? color.red : ut_pos == 1 ? color.green : color.blue
-
 ut_buy = ta.crossover(ut_src, ut_xATRTrailingStopBuy)
 ut_sell = ta.crossunder(ut_src, ut_xATRTrailingStopSell)
-
-ut_isBullBar = ut_src > ut_xATRTrailingStopBuy
 
 plotshape(
      ut_show and ut_buy,
@@ -2073,31 +1658,201 @@ plotshape(
 alertcondition(ut_buy, title = 'UT BOT Buy', message = 'UT BOT Buy')
 alertcondition(ut_sell, title = 'UT BOT Sell', message = 'UT BOT Sell')
 
+//====================================================================
+// TABLE OPTIONS — last settings section (below UT Bot Sell Settings)
+// Inputs + bias logic + table drawing
+//====================================================================
+
+string t_GRP_TABLE = '════════ Table Options ═════════'
+
+// Label text and background are fixed colors that stay readable on any chart.
+t_TextColor = input.color(color.white, 'Table Label Text Color', group = t_GRP_TABLE, tooltip = 'Color of the left-side labels (Monthly, Weekly, Daily, Open, Now, CPR Width, CPR Type, ATR Phase, Read).')
+t_BGColor = input.color(#131722, 'Table Background Color', group = t_GRP_TABLE, tooltip = 'Solid background behind the table cells so the text is visible on any chart theme.')
+
+t_biasMode = input.string('Current', 'Bias Mode', group = t_GRP_TABLE, options = ['Current', 'Pairs'], tooltip = 'Current = bias from the chart symbol vs its previous-day CPR.\nPairs = bias from the two symbols and the relation set below (used only when Bias Mode = Pairs).')
+
+// ——— Custom Pair settings (used when Bias Mode = Pairs) ———
+pair_symA = input.symbol('NSE:NIFTY1!', 'Pair Symbol A (bias is shown for this one)', group = t_GRP_TABLE)
+pair_symB = input.symbol('NSE:BANKNIFTY1!', 'Pair Symbol B', group = t_GRP_TABLE)
+pair_relation = input.string('Same Direction', 'Pair Relation', options = ['Same Direction', 'Opposite Direction'], group = t_GRP_TABLE, tooltip = 'Each symbol is judged Above / Below its own previous-day CPR.\n\nSame Direction: A above & B above = Bulls. A below & B below = Bears.\nOpposite Direction: A above & B below = Bulls. A below & B above = Bears (e.g. Crude vs Gold).\nAnything else (inside CPR or no agreement) = Patience.')
+pair_label = input.string('', 'Pair Banner Text (optional)', group = t_GRP_TABLE, tooltip = 'Optional text added to the banner in Pairs mode, e.g. "Crude Oil" shows "Trust the Bulls on Crude Oil".')
+
+t_FrameCol = color.new(#999999, 50)
+t_BorderCol = color.new(#999999, 50)
+
+string t_tablesize = input.string('small', 'Size', inline = 't_tblsz', group = t_GRP_TABLE, options = ['tiny', 'small', 'normal', 'large', 'huge', 'auto'])
+string t_tableposY = input.string('middle', '↕', inline = 't_tblsz', group = t_GRP_TABLE, options = ['top', 'middle', 'bottom'])
+string t_tableposX = input.string('right', '↔', inline = 't_tblsz', group = t_GRP_TABLE, options = ['left', 'center', 'right'])
+
+// ——— Custom pair bias (user-set symbols + Same / Opposite direction) ———
+
+// Previous-day CPR bounds (one request per symbol)
+f_cpr(sym) =>
+    [dh, dl, dc] = request.security(sym, "D", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+
+    pp = (dh + dl + dc) / 3.0
+    bc = (dh + dl) / 2.0
+    tc = 2.0 * pp - bc
+
+    [bc, tc]
+
+// 1 = above CPR, -1 = below CPR, 0 = inside CPR
+f_loc(price, bc, tc) =>
+    upper = math.max(bc, tc)
+    lower = math.min(bc, tc)
+
+    price > upper ? 1 : price < lower ? -1 : 0
+
+[bcA, tcA] = f_cpr(pair_symA)
+[bcB, tcB] = f_cpr(pair_symB)
+
+closeA = request.security(pair_symA, timeframe.period, close, lookahead = barmerge.lookahead_off)
+closeB = request.security(pair_symB, timeframe.period, close, lookahead = barmerge.lookahead_off)
+
+locA = f_loc(closeA, bcA, tcA)
+locB = f_loc(closeB, bcB, tcB)
+
+bool pairSame = pair_relation == 'Same Direction'
+
+// Same Direction : A above & B above = Bulls, A below & B below = Bears
+// Opposite       : A above & B below = Bulls, A below & B above = Bears
+bool pairBull = pairSame ? (locA == 1 and locB == 1) : (locA == 1 and locB == -1)
+bool pairBear = pairSame ? (locA == -1 and locB == -1) : (locA == -1 and locB == 1)
+
+t_tradeBias_curr = t_locD == 'Above' ? 'Bulls' : t_locD == 'Below' ? 'Bears' : 'Patience'
+t_tradeBias_pairs = pairBull ? 'Bulls' : pairBear ? 'Bears' : 'Patience'
+
+t_tradeBias = t_biasMode == 'Current' ? t_tradeBias_curr : t_tradeBias_pairs
+
+// Optional text after the banner in Pairs mode (e.g. "on Crude Oil")
+t_biasSuffix = t_biasMode == 'Pairs' and pair_label != '' ? ' on ' + pair_label : ''
+
+t_tradeBiasCol =
+     t_tradeBias == 'Bulls' ? color.green :
+     t_tradeBias == 'Bears' ? color.red :
+     color.gray
+
+var table t_T =
+     table.new(
+         position = t_tableposY + '_' + t_tableposX,
+         columns = 2,
+         rows = 11,
+         bgcolor = t_BGColor,
+         frame_color = t_FrameCol,
+         frame_width = 1,
+         border_color = t_BorderCol,
+         border_width = 1)
+
+if barstate.islast
+
+    table.merge_cells(t_T, 0, 0, 1, 0)
+
+    table.cell(
+         t_T,
+         0,
+         0,
+         'Trust the ' + t_tradeBias + t_biasSuffix,
+         bgcolor = t_tradeBiasCol,
+         text_color = color.white,
+         text_halign = text.align_center,
+         text_formatting = text.format_bold,
+         text_size = t_tablesize)
+
+    table.cell(t_T, 0, 1, 'Monthly', text_color = t_TextColor, bgcolor = t_BGColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    table.cell(
+         t_T,
+         1,
+         1,
+         t_locM,
+         text_color = t_locM == 'Above' ? color.green : t_locM == 'Below' ? color.red : color.orange,
+         bgcolor = t_BGColor,
+         text_halign = text.align_center,
+         text_formatting = text.format_bold,
+         text_size = t_tablesize)
+
+    table.cell(t_T, 0, 2, 'Weekly', text_color = t_TextColor, bgcolor = t_BGColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    table.cell(
+         t_T,
+         1,
+         2,
+         t_locW,
+         text_color = t_locW == 'Above' ? color.green : t_locW == 'Below' ? color.red : t_locW == 'Inside' ? color.orange : color.gray,
+         bgcolor = t_BGColor,
+         text_halign = text.align_center,
+         text_formatting = text.format_bold,
+         text_size = t_tablesize)
+
+    table.cell(t_T, 0, 3, 'Daily', text_color = t_TextColor, bgcolor = t_BGColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    table.cell(
+         t_T,
+         1,
+         3,
+         t_locD,
+         text_color = t_locD == 'Above' ? color.green : t_locD == 'Below' ? color.red : color.orange,
+         bgcolor = t_BGColor,
+         text_halign = text.align_center,
+         text_formatting = text.format_bold,
+         text_size = t_tablesize)
+
+    table.cell(t_T, 0, 4, 'Open', text_color = t_TextColor, bgcolor = t_BGColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+    table.cell(t_T, 1, 4, t_openLoc, text_color = t_openCol, bgcolor = t_BGColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    table.cell(t_T, 0, 5, 'Now', text_color = t_TextColor, bgcolor = t_BGColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+    table.cell(t_T, 1, 5, t_currentLoc, text_color = t_currCol, bgcolor = t_BGColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    table.merge_cells(t_T, 0, 6, 1, 6)
+
+    table.cell(t_T, 0, 6, '', bgcolor = color.new(t_tradeBiasCol, 50), text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    // Single CPR Width — based on the current CPR (Daily / Weekly / Monthly)
+    table.cell(t_T, 0, 7, 'CPR Width', text_color = t_TextColor, bgcolor = t_BGColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+    table.cell(t_T, 1, 7, t_widthLabelCur, text_color = t_widthCol(t_widthLabelCur), bgcolor = t_BGColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    // CPR Type — each type has its own color
+    table.cell(t_T, 0, 8, 'CPR Type', text_color = t_TextColor, bgcolor = t_BGColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+    table.cell(t_T, 1, 8, t_typeLabel, text_color = t_typeColor, bgcolor = t_BGColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    // ATR Phase — same period as CPR Width (Daily / Weekly / Monthly)
+    table.cell(t_T, 0, 9, 'ATR Phase', text_color = t_TextColor, bgcolor = t_BGColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+    table.cell(t_T, 1, 9, t_atrTxt, text_color = t_atrCol, bgcolor = t_BGColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
+    // Read — day-type reading from CPR width + ATR phase, each reading has its own color
+    table.cell(t_T, 0, 10, 'Read', text_color = t_TextColor, bgcolor = t_BGColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+    table.cell(t_T, 1, 10, t_readTxt, text_color = t_readColor, bgcolor = t_BGColor, text_halign = text.align_center, text_formatting = text.format_bold, text_size = t_tablesize)
+
 // ──────────────────────────────────────────────
-// ALERTCONDITIONS – CPR LOCATION
+// ALERTCONDITIONS – CPR LOCATION / WIDTH / TYPE
+// Event-based: each fires only on the bar where the state BECOMES true,
+// not on every bar while it stays true.
 // ──────────────────────────────────────────────
 
-alertcondition(t_locM == 'Above', title = 'Monthly CPR – Price Above', message = 'Price is ABOVE the Monthly CPR')
-alertcondition(t_locM == 'Below', title = 'Monthly CPR – Price Below', message = 'Price is BELOW the Monthly CPR')
-alertcondition(t_locM == 'Inside', title = 'Monthly CPR – Price Inside', message = 'Price is INSIDE the Monthly CPR')
+f_rise(cond) =>
+    cond and not cond[1]
 
-alertcondition(t_locW == 'Above', title = 'Weekly CPR – Price Above', message = 'Price is ABOVE the Weekly CPR')
-alertcondition(t_locW == 'Below', title = 'Weekly CPR – Price Below', message = 'Price is BELOW the Weekly CPR')
-alertcondition(t_locW == 'Inside', title = 'Weekly CPR – Price Inside', message = 'Price is INSIDE the Weekly CPR')
+alertcondition(f_rise(t_locM == 'Above'), title = 'Monthly CPR – Price Above', message = 'Price is ABOVE the Monthly CPR')
+alertcondition(f_rise(t_locM == 'Below'), title = 'Monthly CPR – Price Below', message = 'Price is BELOW the Monthly CPR')
+alertcondition(f_rise(t_locM == 'Inside'), title = 'Monthly CPR – Price Inside', message = 'Price is INSIDE the Monthly CPR')
 
-alertcondition(t_locD == 'Above', title = 'Daily CPR – Price Above', message = 'Price is ABOVE the Daily CPR')
-alertcondition(t_locD == 'Below', title = 'Daily CPR – Price Below', message = 'Price is BELOW the Daily CPR')
-alertcondition(t_locD == 'Inside', title = 'Daily CPR – Price Inside', message = 'Price is INSIDE the Daily CPR')
+alertcondition(f_rise(t_locW == 'Above'), title = 'Weekly CPR – Price Above', message = 'Price is ABOVE the Weekly CPR')
+alertcondition(f_rise(t_locW == 'Below'), title = 'Weekly CPR – Price Below', message = 'Price is BELOW the Weekly CPR')
+alertcondition(f_rise(t_locW == 'Inside'), title = 'Weekly CPR – Price Inside', message = 'Price is INSIDE the Weekly CPR')
 
-alertcondition(t_widthLabel == 'Super Narrow', title = 'CPR Width – Super Narrow', message = 'Daily CPR width is SUPER NARROW')
-alertcondition(t_widthLabel == 'Narrow', title = 'CPR Width – Narrow', message = 'Daily CPR width is NARROW')
-alertcondition(t_widthLabel == 'Medium', title = 'CPR Width – Medium', message = 'Daily CPR width is MEDIUM')
-alertcondition(t_widthLabel == 'Wide', title = 'CPR Width – Wide', message = 'Daily CPR width is WIDE')
+alertcondition(f_rise(t_locD == 'Above'), title = 'Daily CPR – Price Above', message = 'Price is ABOVE the Daily CPR')
+alertcondition(f_rise(t_locD == 'Below'), title = 'Daily CPR – Price Below', message = 'Price is BELOW the Daily CPR')
+alertcondition(f_rise(t_locD == 'Inside'), title = 'Daily CPR – Price Inside', message = 'Price is INSIDE the Daily CPR')
 
-alertcondition(t_typeLabel == 'Ascending', title = 'CPR Type – Ascending', message = 'Daily CPR type: ASCENDING')
-alertcondition(t_typeLabel == 'Descending', title = 'CPR Type – Descending', message = 'Daily CPR type: DESCENDING')
-alertcondition(t_typeLabel == 'Inside', title = 'CPR Type – Inside', message = 'Daily CPR type: INSIDE CPR')
-alertcondition(t_typeLabel == 'Outside', title = 'CPR Type – Outside', message = 'Daily CPR type: OUTSIDE CPR')
-alertcondition(t_typeLabel == 'Asc Rev', title = 'CPR Type – Ascending Reversal', message = 'Daily CPR type: ASCENDING REVERSAL')
-alertcondition(t_typeLabel == 'Desc Rev', title = 'CPR Type – Descending Reversal', message = 'Daily CPR type: DESCENDING REVERSAL')
-alertcondition(t_typeLabel == 'Overlapping', title = 'CPR Type – Overlapping', message = 'Daily CPR type: OVERLAPPING')
+alertcondition(f_rise(t_widthLabel == 'Super Narrow'), title = 'CPR Width – Super Narrow', message = 'Daily CPR width is SUPER NARROW')
+alertcondition(f_rise(t_widthLabel == 'Narrow'), title = 'CPR Width – Narrow', message = 'Daily CPR width is NARROW')
+alertcondition(f_rise(t_widthLabel == 'Medium'), title = 'CPR Width – Medium', message = 'Daily CPR width is MEDIUM')
+alertcondition(f_rise(t_widthLabel == 'Wide'), title = 'CPR Width – Wide', message = 'Daily CPR width is WIDE')
+
+alertcondition(f_rise(t_typeLabel == 'Ascending'), title = 'CPR Type – Ascending', message = 'Daily CPR type: ASCENDING')
+alertcondition(f_rise(t_typeLabel == 'Descending'), title = 'CPR Type – Descending', message = 'Daily CPR type: DESCENDING')
+alertcondition(f_rise(t_typeLabel == 'Inside'), title = 'CPR Type – Inside', message = 'Daily CPR type: INSIDE CPR')
+alertcondition(f_rise(t_typeLabel == 'Outside'), title = 'CPR Type – Outside', message = 'Daily CPR type: OUTSIDE CPR')
+alertcondition(f_rise(t_typeLabel == 'Asc Rev'), title = 'CPR Type – Ascending Reversal', message = 'Daily CPR type: ASCENDING REVERSAL')
+alertcondition(f_rise(t_typeLabel == 'Desc Rev'), title = 'CPR Type – Descending Reversal', message = 'Daily CPR type: DESCENDING REVERSAL')
+alertcondition(f_rise(t_typeLabel == 'Overlapping'), title = 'CPR Type – Overlapping', message = 'Daily CPR type: OVERLAPPING')
