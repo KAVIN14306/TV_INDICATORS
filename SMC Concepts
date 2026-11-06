@@ -77,7 +77,11 @@ showFairValueGapsTooltip         = 'Display fair values gaps on the chart'
 fairValueGapsThresholdTooltip    = 'Filter out non significant fair value gaps'
 fairValueGapsTimeframeTooltip    = 'Fair value gaps timeframe'
 fairValueGapsExtendTooltip       = 'Determine how many bars to extend the Fair Value Gap boxes on chart'
-showFvgStyleTooltip              = 'ON: every non mitigated FVG box is extended to the current candle.\nOFF: FVG boxes are drawn the classic way (short boxes)'
+showFvgStyleTooltip              = 'ON: every non mitigated FVG box is extended to the current candle, and its text label stays in the center of the box.\nOFF: FVG boxes are drawn the classic way (short boxes)'
+fvgDeleteTooltip                 = 'Remove an FVG once price trades through it. If off, the box stops extending at the mitigation bar'
+fvgMaxTooltip                    = 'Maximum number of FVG boxes kept on the chart. When the limit is exceeded the oldest FVG is removed first'
+fvgLabelSizeTooltip              = 'Text size of the FVG labels (tiny, small or normal)'
+showFvgLabelsTooltip             = 'Show a Bull FVG / Bear FVG label for each FVG. The text color follows the FVG color, and the label sits in the center of the box'
 showPremiumDiscountZonesTooltip  = 'Display premium, discount, and equilibrium zones on chart'
 showZoneLabelsTooltip            = 'Show the Premium / Equilibrium / Discount text label for each displayed zone. The text color follows the zone color. Turn off to show only the colored zone boxes'
 zoneLabelSizeTooltip             = 'Text size of the Premium / Equilibrium / Discount labels (tiny, small or normal). The Equilibrium label is centered inside its box'
@@ -153,6 +157,10 @@ fairValueGapsBullColorInput      = input.color(color.new(#00ff68, 70), 'Bullish 
 fairValueGapsBearColorInput      = input.color(color.new(#ff0008, 70), 'Bearish FVG' , group = GAPS_GROUP, display = display.none)
 fairValueGapsExtendInput         = input.int(    1,          'Extend FVG',               group = GAPS_GROUP,     tooltip = fairValueGapsExtendTooltip,       minval = 0, display = display.none)
 showFvgStyleInput                = input.bool(   true,       'Extend FVG to Current Bar', group = GAPS_GROUP, tooltip = showFvgStyleTooltip, display = display.none)
+fvgDeleteMitigatedInput          = input.bool(   true,       'Delete Mitigated FVG',     group = GAPS_GROUP,     tooltip = fvgDeleteTooltip, display = display.none)
+showFvgLabelsInput               = input.bool(   true,       'Show FVG Labels',          group = GAPS_GROUP,     tooltip = showFvgLabelsTooltip, display = display.none)
+fvgLabelSizeInput                = input.string( TINY,       'FVG Label Size',           group = GAPS_GROUP,     tooltip = fvgLabelSizeTooltip, options = [TINY,SMALL,NORMAL], display = display.none)
+fvgMaxInput                      = input.int(    10,         'Max FVGs',                 group = GAPS_GROUP,     minval = 1, maxval = 100, tooltip = fvgMaxTooltip, display = display.none)
 
 // HTF FVG inputs ------------------------------------------------------------------------------------------------------
 showHTF1Input                    = input.bool(   true,       'Show',                group = HTF_GROUP,      inline = 'htf1', display = display.none)
@@ -292,6 +300,8 @@ type fairValueGap
     box topBox
     box bottomBox
     int leftTime
+    bool active
+    label l_abel
 
 type htfFairValueGap
     float top
@@ -698,18 +708,42 @@ fairValueGapBox(leftTime,rightTime,topPrice,bottomPrice,boxColor) =>
     int barMs = timeframe.in_seconds(fairValueGapsTimeframeInput == '' ? timeframe.period : fairValueGapsTimeframeInput) * 1000
     box.new(chart.point.new(leftTime,na,topPrice),chart.point.new(rightTime + fairValueGapsExtendInput * barMs,na,bottomPrice), xloc=xloc.bar_time, border_color = boxColor, bgcolor = boxColor)
 
-// FIX: iterate backwards so removing a gap never skips the one that shifts into its place
+// Text used for the FVG label
+fvgTag(int bias) => bias == BULLISH ? 'Bull FVG' : 'Bear FVG'
+
+// FIX (label position): the FVG label is placed in the CENTER of its box - horizontally at the middle between
+// the box's left and right edges, vertically at the middle of the gap. It is re-centered whenever the box
+// edge moves (extended to the current bar, or frozen at the mitigation bar).
+updateFvgLabel(fairValueGap g) =>
+    int boxLeft  = g.leftTime
+    int boxRight = g.topBox.get_right()
+    g.l_abel.set_point(chart.point.new(math.round(0.5 * (boxLeft + boxRight)), na, 0.5 * (g.top + g.bottom)))
+
+// Mitigation handling (iterates backwards so removing a gap never skips the one that shifts into its place).
+// Delete Mitigated FVG ON  : box + label are removed once price trades through the gap.
+// Delete Mitigated FVG OFF : the gap is kept, but its box (and label) stop at the mitigation bar.
+// FIX (CE10235): remove(i) returns a value, so it is called FIRST in its branch. Each branch of the
+// if/else now ends with a void call, which keeps both branches' return types compatible.
 deleteFairValueGaps() =>
     if fairValueGaps.size() > 0
         for i = fairValueGaps.size() - 1 to 0
             fairValueGap eachFairValueGap = fairValueGaps.get(i)
-            if (low < eachFairValueGap.bottom and eachFairValueGap.bias == BULLISH) or (high > eachFairValueGap.top and eachFairValueGap.bias == BEARISH)
-                eachFairValueGap.topBox.delete()
-                eachFairValueGap.bottomBox.delete()
-                fairValueGaps.remove(i)
+            if eachFairValueGap.active
+                bool mitigated = (low < eachFairValueGap.bottom and eachFairValueGap.bias == BULLISH) or (high > eachFairValueGap.top and eachFairValueGap.bias == BEARISH)
+                if mitigated
+                    if fvgDeleteMitigatedInput
+                        fairValueGaps.remove(i)
+                        eachFairValueGap.topBox.delete()
+                        eachFairValueGap.bottomBox.delete()
+                        eachFairValueGap.l_abel.delete()
+                    else
+                        eachFairValueGap.active := false
+                        eachFairValueGap.topBox.set_right(time)
+                        eachFairValueGap.bottomBox.set_right(time)
+                        updateFvgLabel(eachFairValueGap)
 
-// Instantly hides/shows already-plotted FVG boxes when the Show Bullish/Bearish FVG toggles change,
-// instead of only affecting newly formed gaps.
+// Instantly hides/shows already-plotted FVG boxes and labels when the Show Bullish/Bearish FVG,
+// Show FVG Labels or FVG Label Size inputs change, instead of only affecting newly formed gaps.
 syncFvgVisibility() =>
     if fairValueGaps.size() > 0
         for eachFairValueGap in fairValueGaps
@@ -720,14 +754,19 @@ syncFvgVisibility() =>
             eachFairValueGap.topBox.set_bgcolor(applied)
             eachFairValueGap.bottomBox.set_border_color(applied)
             eachFairValueGap.bottomBox.set_bgcolor(applied)
+            eachFairValueGap.l_abel.set_text(visible and showFvgLabelsInput ? fvgTag(eachFairValueGap.bias) : '')
+            eachFairValueGap.l_abel.set_textcolor(color.new(baseColor, 0))
+            eachFairValueGap.l_abel.set_size(fvgLabelSizeInput)
 
-// "Extend FVG to Current Bar": stretches every non mitigated FVG box to the current candle.
-// Runs on the last bar only (cheap).
+// "Extend FVG to Current Bar": stretches every non mitigated FVG box to the current candle and re-centers
+// its label inside the stretched box. Runs on the last bar only (cheap).
 updateFvgStyle() =>
     if showFvgStyleInput and fairValueGaps.size() > 0
         for eachFairValueGap in fairValueGaps
-            eachFairValueGap.topBox.set_right(time)
-            eachFairValueGap.bottomBox.set_right(time)
+            if eachFairValueGap.active
+                eachFairValueGap.topBox.set_right(time)
+                eachFairValueGap.bottomBox.set_right(time)
+                updateFvgLabel(eachFairValueGap)
     
 drawFairValueGaps() => 
     [lastClose, lastOpen, lastTime, currentHigh, currentLow, currentTime, last2High, last2Low] = request.security(syminfo.tickerid, fairValueGapsTimeframeInput, [close[1], open[1], time[1], high[0], low[0], time[0], high[2], low[2]],lookahead = barmerge.lookahead_on)
@@ -741,10 +780,21 @@ drawFairValueGaps() =>
 
     if bullishFairValueGap
         currentAlerts.bullishFairValueGap := true
-        fairValueGaps.unshift(fairValueGap.new(currentLow,last2High,BULLISH,fairValueGapBox(lastTime,currentTime,currentLow,math.avg(currentLow,last2High),fairValueGapBullishColor),fairValueGapBox(lastTime,currentTime,math.avg(currentLow,last2High),last2High,fairValueGapBullishColor),lastTime))
+        label bullLabel    = label.new(chart.point.new(currentTime, na, 0.5 * (currentLow + last2High)), showFvgLabelsInput ? fvgTag(BULLISH) : '', xloc.bar_time, color = color(na), textcolor = color.new(fairValueGapBullishColor, 0), style = label.style_label_center, size = fvgLabelSizeInput)
+        fairValueGaps.unshift(fairValueGap.new(currentLow,last2High,BULLISH,fairValueGapBox(lastTime,currentTime,currentLow,math.avg(currentLow,last2High),fairValueGapBullishColor),fairValueGapBox(lastTime,currentTime,math.avg(currentLow,last2High),last2High,fairValueGapBullishColor),lastTime,true,bullLabel))
+        updateFvgLabel(fairValueGaps.get(0))
     if bearishFairValueGap
         currentAlerts.bearishFairValueGap := true
-        fairValueGaps.unshift(fairValueGap.new(currentHigh,last2Low,BEARISH,fairValueGapBox(lastTime,currentTime,currentHigh,math.avg(currentHigh,last2Low),fairValueGapBearishColor),fairValueGapBox(lastTime,currentTime,math.avg(currentHigh,last2Low),last2Low,fairValueGapBearishColor),lastTime))
+        label bearLabel    = label.new(chart.point.new(currentTime, na, 0.5 * (currentHigh + last2Low)), showFvgLabelsInput ? fvgTag(BEARISH) : '', xloc.bar_time, color = color(na), textcolor = color.new(fairValueGapBearishColor, 0), style = label.style_label_center, size = fvgLabelSizeInput)
+        fairValueGaps.unshift(fairValueGap.new(currentHigh,last2Low,BEARISH,fairValueGapBox(lastTime,currentTime,currentHigh,math.avg(currentHigh,last2Low),fairValueGapBearishColor),fairValueGapBox(lastTime,currentTime,math.avg(currentHigh,last2Low),last2Low,fairValueGapBearishColor),lastTime,true,bearLabel))
+        updateFvgLabel(fairValueGaps.get(0))
+
+    // Max FVGs: newest gaps are at the start of the array, so the oldest ones are removed from the end
+    while fairValueGaps.size() > fvgMaxInput
+        fairValueGap oldest = fairValueGaps.pop()
+        oldest.topBox.delete()
+        oldest.bottomBox.delete()
+        oldest.l_abel.delete()
 
 // ---------------------------------------------------------------------------------------------------------------------
 // HTF FVG FUNCTIONS
@@ -770,6 +820,7 @@ htfText(string tf) =>
 updateHtfLabel(htfFairValueGap g, int x) =>
     g.l_abel.set_point(chart.point.new(x, na, 0.5 * (g.top + g.bottom)))
 
+// FIX (CE10235): gaps.remove(i) is called first so the branch ends with a void call (same as the else branch)
 updateHtfFvg(array<htfFairValueGap> gaps, bool enabled, string tf, bool isNew, bool bull, bool bear, float bTop, float bBottom, float rTop, float rBottom, int leftTime, color bullBorder, color bearBorder, color bullBox, color bearBox) =>
     if enabled
         if gaps.size() > 0
@@ -779,9 +830,9 @@ updateHtfFvg(array<htfFairValueGap> gaps, bool enabled, string tf, bool isNew, b
                     bool mitigated = (g.bias == BULLISH and low < g.bottom) or (g.bias == BEARISH and high > g.top)
                     if mitigated
                         if htfDeleteMitigatedInput
+                            gaps.remove(i)
                             g.b_ox.delete()
                             g.l_abel.delete()
-                            gaps.remove(i)
                         else
                             g.active := false
                             g.b_ox.set_extend(extend.none)
@@ -819,6 +870,7 @@ htfObData(float impulseMult) =>
     bool obBear     = close[2] > open[2] and close[1] < open[1] and close[1] < low[2] and strongMove
     [obBull, obBear, high[2], low[2], time[2], time]
 
+// FIX (CE10235): obs.remove(i) is called first so the branch ends with a void call (same as the else branch)
 updateHtfOb(array<htfFairValueGap> obs, bool enabled, string tf, bool isNew, bool bull, bool bear, float oTop, float oBottom, int leftTime, color bullBorder, color bearBorder, color bullBox, color bearBox) =>
     if enabled
         if obs.size() > 0
@@ -828,9 +880,9 @@ updateHtfOb(array<htfFairValueGap> obs, bool enabled, string tf, bool isNew, boo
                     bool mitigated = (g.bias == BULLISH and bullishOrderBlockMitigationSource < g.bottom) or (g.bias == BEARISH and bearishOrderBlockMitigationSource > g.top)
                     if mitigated
                         if htfObDeleteMitigatedInput
+                            obs.remove(i)
                             g.b_ox.delete()
                             g.l_abel.delete()
-                            obs.remove(i)
                         else
                             g.active := false
                             g.b_ox.set_extend(extend.none)
