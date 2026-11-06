@@ -3,7 +3,6 @@
 
 //@version=6
 indicator(title="Volume Divergence", shorttitle="Volume Divergence", format=format.volume)
-
 pine_wma(x, y) =>
     norm = 0.0
     sum = 0.0
